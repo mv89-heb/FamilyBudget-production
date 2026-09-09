@@ -6,8 +6,22 @@ const schema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url(),
 });
 
-export const env = schema.parse({
-  DATABASE_URL: process.env.DATABASE_URL,
-  AUTH_SECRET: process.env.AUTH_SECRET,
-  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-});
+const buildFallbacks = {
+  DATABASE_URL: "postgresql://build:build@localhost:5432/build",
+  AUTH_SECRET: "build-only-placeholder-secret-32-characters-long",
+  NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+};
+
+export const env = schema.parse(
+  process.env.NEXT_PHASE === "phase-production-build"
+    ? {
+        DATABASE_URL: process.env.DATABASE_URL ?? buildFallbacks.DATABASE_URL,
+        AUTH_SECRET: process.env.AUTH_SECRET ?? buildFallbacks.AUTH_SECRET,
+        NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? buildFallbacks.NEXT_PUBLIC_APP_URL,
+      }
+    : {
+        DATABASE_URL: process.env.DATABASE_URL,
+        AUTH_SECRET: process.env.AUTH_SECRET,
+        NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+      },
+);
