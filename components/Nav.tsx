@@ -9,6 +9,7 @@ export default function Nav({ name }: { name: string }) {
       <nav className="space-y-2">
         <Link className="block rounded-xl px-4 py-3 hover:bg-gray-100" href="/dashboard">📊 לוח בקרה</Link>
         <Link className="block rounded-xl px-4 py-3 hover:bg-gray-100" href="/transactions">💳 תנועות</Link>
+        <Link className="block rounded-xl px-4 py-3 hover:bg-gray-100" href="/import">📥 ייבוא Excel + Gemini</Link>
         <Link className="block rounded-xl px-4 py-3 hover:bg-gray-100" href="/budgets">🎯 תקציבים</Link>
         <Link className="block rounded-xl px-4 py-3 hover:bg-gray-100" href="/settings">⚙️ הגדרות</Link>
       </nav>
