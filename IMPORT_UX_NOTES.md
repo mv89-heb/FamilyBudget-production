@@ -1,0 +1,1 @@
+The user-facing import route is /import. It provides Excel selection, Gemini analysis feedback, success state, and import history. Existing API: POST /api/import/excel; history: GET /api/import/history.
