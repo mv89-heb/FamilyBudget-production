@@ -21,7 +21,7 @@
 
 1. צור Neon database.
 2. העתק `.env.example` ל-`.env`.
-3. מלא `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`.
+3. מלא `DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`.
 4. הרץ:
 
 ```bash
@@ -36,12 +36,13 @@ npm run dev
 
 1. צור פרויקט PostgreSQL ב-Neon.
 2. העתק את connection string של ה-pooled endpoint אל `DATABASE_URL`.
-3. העתק connection string ישיר אל `DIRECT_URL`.
-4. העלה את הפרויקט ל-GitHub.
-5. ב-Render בחר New > Blueprint וחבר את הריפו.
-6. הגדר `DATABASE_URL`, `DIRECT_URL`, ו-`NEXT_PUBLIC_APP_URL` אם Render לא הגדיר אותם.
-7. `AUTH_SECRET` נוצר אוטומטית ב-Blueprint.
-8. ה-build מריץ `prisma migrate deploy` לפני בניית Next.js.
+3. העלה את הפרויקט ל-GitHub.
+4. ב-Render בחר New > Blueprint וחבר את הריפו.
+5. הגדר `DATABASE_URL` ואת `NEXT_PUBLIC_APP_URL` אם Render לא הגדיר אותם.
+6. `AUTH_SECRET` נוצר אוטומטית ב-Blueprint.
+7. ה-build מריץ `npm run build`, שבתוכו Prisma Client נוצר, המיגרציות נפרסות, ולאחר מכן Next.js נבנה.
+
+> חשוב: `DATABASE_URL` הוא משתנה חובה ב-Render. אין ליצור או להוסיף ערך דמה. יש להגדיר את ה-connection string האמיתי של בסיס הנתונים שבו המערכת אמורה להשתמש.
 
 ## אבטחה
 
