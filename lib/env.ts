@@ -4,6 +4,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
   NEXT_PUBLIC_APP_URL: z.string().url(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
 });
 
 const buildFallbacks = {
@@ -18,10 +19,12 @@ export const env = schema.parse(
         DATABASE_URL: process.env.DATABASE_URL ?? buildFallbacks.DATABASE_URL,
         AUTH_SECRET: process.env.AUTH_SECRET ?? buildFallbacks.AUTH_SECRET,
         NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? buildFallbacks.NEXT_PUBLIC_APP_URL,
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY,
       }
     : {
         DATABASE_URL: process.env.DATABASE_URL,
         AUTH_SECRET: process.env.AUTH_SECRET,
         NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY,
       },
 );
