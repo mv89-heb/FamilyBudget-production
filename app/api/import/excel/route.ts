@@ -53,14 +53,15 @@ export async function POST(req: Request) {
   let importId: string | undefined;
   try {
     const user = await requireUser();
-    userId = user.id;
+    const authenticatedUserId = user.id;
+    userId = authenticatedUserId;
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return NextResponse.json({ error: "יש להעלות קובץ Excel" }, { status: 400 });
     if (file.size > MAX_BYTES) return NextResponse.json({ error: "הקובץ גדול מדי (מקסימום 5MB)" }, { status: 413 });
     if (!/\.(xlsx|xls)$/i.test(file.name)) return NextResponse.json({ error: "נתמך רק קובץ XLSX או XLS" }, { status: 415 });
 
-    const job = await prisma.importJob.create({ data: { userId, fileName: file.name, status: "PROCESSING" } });
+    const job = await prisma.importJob.create({ data: { userId: authenticatedUserId, fileName: file.name, status: "PROCESSING" } });
     importId = job.id;
 
     const workbook = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: "buffer", cellDates: true, raw: true });
@@ -85,9 +86,9 @@ export async function POST(req: Request) {
     await prisma.importJob.update({ where: { id: importId }, data: { rowsAnalyzed: importedRows.length, rowsSkipped: importedRows.length - validRows.length } });
     if (!validRows.length) throw new Error("NO_VALID_ROWS");
 
-    const categories = await prisma.category.findMany({ where: { userId } });
+    const categories = await prisma.category.findMany({ where: { userId: authenticatedUserId } });
     const categoryMap = new Map(categories.map(c => [`${c.type}:${c.name.trim().toLocaleLowerCase("he")}`, c]));
-    const methods = await prisma.paymentMethod.findMany({ where: { userId } });
+    const methods = await prisma.paymentMethod.findMany({ where: { userId: authenticatedUserId } });
     const methodMap = new Map(methods.map(m => [m.nickname.trim().toLocaleLowerCase("he"), m]));
     let createdCategories = 0;
     let createdPaymentMethods = 0;
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
         const categoryKey = `${row.type}:${row.categoryName.trim().toLocaleLowerCase("he")}`;
         let category = categoryMap.get(categoryKey);
         if (!category) {
-          category = await tx.category.create({ data: { userId, name: row.categoryName.trim(), type: row.type } });
+          category = await tx.category.create({ data: { userId: authenticatedUserId, name: row.categoryName.trim(), type: row.type } });
           categoryMap.set(categoryKey, category); createdCategories++;
         }
         let paymentMethodId: string | null = null;
@@ -107,12 +108,12 @@ export async function POST(req: Request) {
           const key = methodName.toLocaleLowerCase("he");
           let method = methodMap.get(key);
           if (!method) {
-            method = await tx.paymentMethod.create({ data: { userId, nickname: methodName, type: "OTHER" } });
+            method = await tx.paymentMethod.create({ data: { userId: authenticatedUserId, nickname: methodName, type: "OTHER" } });
             methodMap.set(key, method); createdPaymentMethods++;
           }
           paymentMethodId = method.id;
         }
-        data.push({ userId, type: row.type, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null });
+        data.push({ userId: authenticatedUserId, type: row.type, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null });
       }
       const result = await tx.transaction.createMany({ data });
       return result.count;
