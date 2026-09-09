@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",
+    "@tailwindcss/postcss": "^4.1.12",
     "bcrypt": "^6.0.0",
     "jose": "^6.1.0",
     "lucide-react": "^0.468.0",
@@ -31,7 +32,6 @@
     "@types/react-dom": "^19.0.4",
     "prisma": "^6.15.0",
     "tailwindcss": "^4.1.12",
-    "@tailwindcss/postcss": "^4.1.12",
     "typescript": "^5.9.2",
     "tsx": "^4.19.2"
   },
