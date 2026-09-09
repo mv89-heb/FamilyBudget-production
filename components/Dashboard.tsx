@@ -1,48 +1,15 @@
-use client';
+"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type Data = {
-  income:number; expense:number; balance:number;
-  byCategory:{name:string;amount:number}[];
-  recent:{id:string;type:"INCOME"|"EXPENSE";amount:number;date:string;category:string;paymentMethod:string|null;note:string|null}[];
-};
+type Data={income:number;expense:number;balance:number;byCategory:{name:string;amount:number}[];recent:{id:string;type:"INCOME"|"EXPENSE";amount:number;date:string;category:string;paymentMethod:string|null;note:string|null}[]};
+const money=(n:number)=>new Intl.NumberFormat("he-IL",{style:"currency",currency:"ILS"}).format(n);
 
-const money = (n:number) => new Intl.NumberFormat("he-IL",{style:"currency",currency:"ILS"}).format(n);
-
-export default function Dashboard() {
-  const [data,setData] = useState<Data|null>(null);
-  const [month,setMonth] = useState(new Date().toISOString().slice(0,7));
-  useEffect(()=>{fetch(`/api/dashboard?month=${month}`).then(r=>r.json()).then(setData)},[month]);
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-7">
-        <div><h1 className="text-3xl font-black">לוח בקרה</h1><p className="text-gray-500 mt-1">התמונה הפיננסית של המשפחה</p></div>
-        <div className="flex gap-2"><input type="month" value={month} onChange={e=>setMonth(e.target.value)} className="rounded-xl border p-2.5 bg-white" /><Link href="/transactions" className="rounded-xl bg-gray-900 text-white px-4 py-2.5">+ תנועה</Link></div>
-      </div>
-      {!data ? <div className="text-gray-500">טוען...</div> : <>
-        <div className="grid md:grid-cols-3 gap-4 mb-6">
-          <Card title="הכנסות" value={money(data.income)} />
-          <Card title="הוצאות" value={money(data.expense)} />
-          <Card title="מאזן" value={money(data.balance)} />
-        </div>
-        <div className="grid lg:grid-cols-2 gap-6">
-          <section className="bg-white rounded-2xl border p-5">
-            <h2 className="font-bold text-lg mb-5">הוצאות לפי קטגוריה</h2>
-            {data.byCategory.length === 0 ? <p className="text-gray-500">אין נתונים לחודש זה.</p> :
-              <div className="space-y-4">{data.byCategory.map(x=><div key={x.name}><div className="flex justify-between text-sm mb-1"><span>{x.name}</span><b>{money(x.amount)}</b></div><div className="h-3 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-gray-900 rounded-full" style={{width:`${Math.min(100,(x.amount/(data.expense||1))*100)}%`}} /></div></div>)}</div>}
-          </section>
-          <section className="bg-white rounded-2xl border p-5">
-            <h2 className="font-bold text-lg mb-5">תנועות אחרונות</h2>
-            <div className="space-y-3">{data.recent.slice(0,8).map(r=><div key={r.id} className="flex justify-between items-center border-b pb-3"><div><div className="font-semibold">{r.category}</div><div className="text-xs text-gray-500">{new Date(r.date).toLocaleDateString("he-IL")}{r.paymentMethod ? ` · ${r.paymentMethod}` : ""}</div></div><b className={r.type==="EXPENSE"?"text-red-600":"text-green-600"}>{r.type==="EXPENSE"?"-":"+"}{money(r.amount)}</b></div>)}</div>
-          </section>
-        </div>
-      </>}
-    </div>
-  );
+export default function Dashboard(){
+ const [data,setData]=useState<Data|null>(null),[month,setMonth]=useState(new Date().toISOString().slice(0,7)),[error,setError]=useState("");
+ useEffect(()=>{let active=true;setData(null);setError("");fetch(`/api/dashboard?month=${month}`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"שגיאה");return d}).then(d=>active&&setData(d)).catch(e=>active&&setError(e.message)).finally(()=>{});return()=>{active=false}},[month]);
+ return <div><div className="flex flex-wrap items-center justify-between gap-4 mb-7"><div><h1 className="text-3xl font-black">לוח בקרה</h1><p className="text-gray-500 mt-1">התמונה הפיננסית של המשפחה</p></div><div className="flex gap-2"><input type="month" value={month} onChange={e=>setMonth(e.target.value)} className="rounded-xl border p-2.5 bg-white"/><Link href="/transactions" className="rounded-xl bg-gray-900 text-white px-4 py-2.5">+ תנועה</Link></div></div>
+ {error?<div role="alert" className="rounded-xl bg-red-50 text-red-700 p-4">{error}</div>:!data?<div className="text-gray-500">טוען...</div>:<><div className="grid md:grid-cols-3 gap-4 mb-6"><Card title="הכנסות" value={money(data.income)}/><Card title="הוצאות" value={money(data.expense)}/><Card title="מאזן" value={money(data.balance)}/></div><div className="grid lg:grid-cols-2 gap-6"><section className="bg-white rounded-2xl border p-5"><h2 className="font-bold text-lg mb-5">הוצאות לפי קטגוריה</h2>{data.byCategory.length===0?<p className="text-gray-500">אין נתונים לחודש זה.</p>:<div className="space-y-4">{data.byCategory.map(x=><div key={x.name}><div className="flex justify-between text-sm mb-1"><span>{x.name}</span><b>{money(x.amount)}</b></div><div className="h-3 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-gray-900 rounded-full" style={{width:`${Math.min(100,(x.amount/(data.expense||1))*100)}%`}}/></div></div>)}</div>}</section><section className="bg-white rounded-2xl border p-5"><h2 className="font-bold text-lg mb-5">תנועות אחרונות</h2><div className="space-y-3">{data.recent.slice(0,8).map(r=><div key={r.id} className="flex justify-between items-center border-b pb-3"><div><div className="font-semibold">{r.category}</div><div className="text-xs text-gray-500">{new Date(r.date).toLocaleDateString("he-IL")}{r.paymentMethod?` · ${r.paymentMethod}`:""}</div></div><b className={r.type==="EXPENSE"?"text-red-600":"text-green-600"}>{r.type==="EXPENSE"?"-":"+"}{money(r.amount)}</b></div>)}</div></section></div></>}</div>;
 }
-function Card({title,value}:{title:string;value:string}) {
-  return <div className="bg-white rounded-2xl border p-5"><div className="text-gray-500 text-sm">{title}</div><div className="text-2xl font-black mt-2">{value}</div></div>
-}
+function Card({title,value}:{title:string;value:string}){return <div className="bg-white rounded-2xl border p-5"><div className="text-gray-500 text-sm">{title}</div><div className="text-2xl font-black mt-2">{value}</div></div>}
