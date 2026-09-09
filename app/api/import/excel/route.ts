@@ -3,12 +3,12 @@ import * as XLSX from "xlsx";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 2000;
+const GEMINI_TIMEOUT_MS = 60_000;
 const rowSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.number().finite().positive().max(999999999),
@@ -25,8 +25,11 @@ function cleanJson(text: string) {
 }
 
 async function analyzeWithGemini(rows: unknown[][]) {
-  const key = env.GEMINI_API_KEY;
+  // Read the secret at request time. This avoids relying on a module-level env snapshot
+  // that may have been evaluated during the Next.js build rather than at runtime.
+  const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) throw new Error("GEMINI_NOT_CONFIGURED");
+
   const payload = {
     contents: [{ parts: [{ text: [
       "You normalize spreadsheet financial transactions for a family budget application.",
@@ -38,14 +41,47 @@ async function analyzeWithGemini(rows: unknown[][]) {
     ].join("\n") }] }],
     generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
   };
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-  });
-  if (!response.ok) throw new Error("GEMINI_REQUEST_FAILED");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+        cache: "no-store",
+      },
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("GEMINI_TIMEOUT");
+    }
+    throw new Error("GEMINI_NETWORK_ERROR");
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    console.error("Gemini request failed", { status: response.status, details: details.slice(0, 1000) });
+    if (response.status === 401 || response.status === 403) throw new Error("GEMINI_AUTH_FAILED");
+    if (response.status === 429) throw new Error("GEMINI_RATE_LIMITED");
+    throw new Error("GEMINI_REQUEST_FAILED");
+  }
+
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (typeof text !== "string") throw new Error("GEMINI_EMPTY_RESPONSE");
-  return responseSchema.parse(JSON.parse(cleanJson(text))).rows;
+
+  try {
+    return responseSchema.parse(JSON.parse(cleanJson(text))).rows;
+  } catch {
+    throw new Error("GEMINI_INVALID_RESPONSE");
+  }
 }
 
 export async function POST(req: Request) {
@@ -127,6 +163,11 @@ export async function POST(req: Request) {
     }
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
     if (error instanceof Error && error.message === "GEMINI_NOT_CONFIGURED") return NextResponse.json({ error: "שירות Gemini לא מוגדר בשרת" }, { status: 503 });
+    if (error instanceof Error && error.message === "GEMINI_AUTH_FAILED") return NextResponse.json({ error: "מפתח Gemini אינו תקין או אינו מורשה" }, { status: 502 });
+    if (error instanceof Error && error.message === "GEMINI_RATE_LIMITED") return NextResponse.json({ error: "שירות Gemini הגיע למגבלת הבקשות. נסה שוב בעוד מעט" }, { status: 429 });
+    if (error instanceof Error && error.message === "GEMINI_TIMEOUT") return NextResponse.json({ error: "Gemini לא הגיב בזמן. נסה שוב עם קובץ קטן יותר" }, { status: 504 });
+    if (error instanceof Error && error.message === "GEMINI_NETWORK_ERROR") return NextResponse.json({ error: "לא ניתן להתחבר לשירות Gemini" }, { status: 502 });
+    if (error instanceof Error && error.message === "GEMINI_INVALID_RESPONSE") return NextResponse.json({ error: "Gemini החזיר תשובה שלא ניתן לעבד" }, { status: 502 });
     if (error instanceof Error && error.message === "EMPTY_SPREADSHEET") return NextResponse.json({ error: "לא נמצאו נתונים בקובץ" }, { status: 400 });
     if (error instanceof Error && error.message === "NO_VALID_ROWS") return NextResponse.json({ error: "Gemini לא הצליח לזהות תנועות תקינות" }, { status: 422 });
     console.error("Excel import failed", error);
