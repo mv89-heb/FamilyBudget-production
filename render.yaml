@@ -3,7 +3,7 @@ services:
     name: familybudget
     runtime: node
     plan: free
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    buildCommand: npm install --no-audit --no-fund && npx prisma generate && npx prisma migrate deploy && npm run typecheck && next build
     startCommand: npm start
     healthCheckPath: /login
     envVars:
