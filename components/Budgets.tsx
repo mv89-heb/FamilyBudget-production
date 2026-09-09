@@ -1,4 +1,4 @@
-use client';
+"use client";
 import {useEffect,useState} from "react";
 type C={id:string;name:string;type:string}; type B={id:string;categoryId:string;categoryName:string;limit:number;spent:number;percent:number};
 export default function Budgets(){
