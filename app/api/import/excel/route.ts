@@ -48,27 +48,20 @@ async function analyzeWithGemini(rows: unknown[][]) {
   return responseSchema.parse(JSON.parse(cleanJson(text))).rows;
 }
 
-function excelDateToIso(value: unknown): string | null {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
-  if (typeof value === "number") {
-    const date = XLSX.SSF.parse_date_code(value);
-    if (date?.y && date?.m && date?.d) return `${date.y.toString().padStart(4, "0")}-${date.m.toString().padStart(2, "0")}-${date.d.toString().padStart(2, "0")}`;
-  }
-  if (typeof value === "string") {
-    const d = new Date(value);
-    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  }
-  return null;
-}
-
 export async function POST(req: Request) {
+  let userId: string | undefined;
+  let importId: string | undefined;
   try {
     const user = await requireUser();
+    userId = user.id;
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return NextResponse.json({ error: "יש להעלות קובץ Excel" }, { status: 400 });
     if (file.size > MAX_BYTES) return NextResponse.json({ error: "הקובץ גדול מדי (מקסימום 5MB)" }, { status: 413 });
     if (!/\.(xlsx|xls)$/i.test(file.name)) return NextResponse.json({ error: "נתמך רק קובץ XLSX או XLS" }, { status: 415 });
+
+    const job = await prisma.importJob.create({ data: { userId, fileName: file.name, status: "PROCESSING" } });
+    importId = job.id;
 
     const workbook = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: "buffer", cellDates: true, raw: true });
     const rawRows: unknown[][] = [];
@@ -81,32 +74,31 @@ export async function POST(req: Request) {
       }
       if (rawRows.length >= MAX_ROWS + 1) break;
     }
-    if (rawRows.length < 2) return NextResponse.json({ error: "לא נמצאו נתונים בקובץ" }, { status: 400 });
+    if (rawRows.length < 2) throw new Error("EMPTY_SPREADSHEET");
+    await prisma.importJob.update({ where: { id: importId }, data: { rowsDetected: rawRows.length - 1 } });
 
     const importedRows = await analyzeWithGemini(rawRows);
     const validRows = importedRows.filter((row) => {
       const date = new Date(`${row.date}T00:00:00.000Z`);
       return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === row.date;
     });
-    if (!validRows.length) return NextResponse.json({ error: "Gemini לא הצליח לזהות תנועות תקינות" }, { status: 422 });
+    await prisma.importJob.update({ where: { id: importId }, data: { rowsAnalyzed: importedRows.length, rowsSkipped: importedRows.length - validRows.length } });
+    if (!validRows.length) throw new Error("NO_VALID_ROWS");
 
-    const categories = await prisma.category.findMany({ where: { userId: user.id } });
+    const categories = await prisma.category.findMany({ where: { userId } });
     const categoryMap = new Map(categories.map(c => [`${c.type}:${c.name.trim().toLocaleLowerCase("he")}`, c]));
-    const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id } });
+    const methods = await prisma.paymentMethod.findMany({ where: { userId } });
     const methodMap = new Map(methods.map(m => [m.nickname.trim().toLocaleLowerCase("he"), m]));
     let createdCategories = 0;
     let createdPaymentMethods = 0;
 
     const created = await prisma.$transaction(async (tx) => {
-      const data = [] as Array<{
-        userId: string; type: "INCOME" | "EXPENSE"; amount: number; transactionDate: Date;
-        categoryId: string; paymentMethodId?: string | null; note?: string | null;
-      }>;
+      const data: Array<{ userId: string; type: "INCOME" | "EXPENSE"; amount: number; transactionDate: Date; categoryId: string; paymentMethodId: string | null; note: string | null }> = [];
       for (const row of validRows) {
         const categoryKey = `${row.type}:${row.categoryName.trim().toLocaleLowerCase("he")}`;
         let category = categoryMap.get(categoryKey);
         if (!category) {
-          category = await tx.category.create({ data: { userId: user.id, name: row.categoryName.trim(), type: row.type } });
+          category = await tx.category.create({ data: { userId, name: row.categoryName.trim(), type: row.type } });
           categoryMap.set(categoryKey, category); createdCategories++;
         }
         let paymentMethodId: string | null = null;
@@ -115,22 +107,27 @@ export async function POST(req: Request) {
           const key = methodName.toLocaleLowerCase("he");
           let method = methodMap.get(key);
           if (!method) {
-            method = await tx.paymentMethod.create({ data: { userId: user.id, nickname: methodName, type: "OTHER" } });
+            method = await tx.paymentMethod.create({ data: { userId, nickname: methodName, type: "OTHER" } });
             methodMap.set(key, method); createdPaymentMethods++;
           }
           paymentMethodId = method.id;
         }
-        data.push({ userId: user.id, type: row.type, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null });
+        data.push({ userId, type: row.type, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null });
       }
-      if (!data.length) return 0;
       const result = await tx.transaction.createMany({ data });
       return result.count;
     });
 
-    return NextResponse.json({ success: true, fileName: file.name, rowsDetected: rawRows.length - 1, rowsAnalyzed: importedRows.length, rowsImported: created, rowsSkipped: importedRows.length - validRows.length, categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods });
+    await prisma.importJob.update({ where: { id: importId }, data: { status: "COMPLETED", rowsImported: created, categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods, completedAt: new Date() } });
+    return NextResponse.json({ success: true, importId, fileName: file.name, rowsDetected: rawRows.length - 1, rowsAnalyzed: importedRows.length, rowsImported: created, rowsSkipped: importedRows.length - validRows.length, categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods });
   } catch (error) {
+    if (importId && userId) {
+      await prisma.importJob.update({ where: { id: importId }, data: { status: "FAILED", errorMessage: error instanceof Error ? error.message.slice(0, 500) : "IMPORT_FAILED" } }).catch(() => undefined);
+    }
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
     if (error instanceof Error && error.message === "GEMINI_NOT_CONFIGURED") return NextResponse.json({ error: "שירות Gemini לא מוגדר בשרת" }, { status: 503 });
+    if (error instanceof Error && error.message === "EMPTY_SPREADSHEET") return NextResponse.json({ error: "לא נמצאו נתונים בקובץ" }, { status: 400 });
+    if (error instanceof Error && error.message === "NO_VALID_ROWS") return NextResponse.json({ error: "Gemini לא הצליח לזהות תנועות תקינות" }, { status: 422 });
     console.error("Excel import failed", error);
     return NextResponse.json({ error: "לא ניתן לייבא את קובץ Excel" }, { status: 400 });
   }
