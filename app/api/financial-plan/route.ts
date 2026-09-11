@@ -32,8 +32,8 @@ const toNumber = (value: unknown): number => {
   return 0;
 };
 
-const sum = (values: readonly unknown[]): number => values.reduce((total: number, value: unknown): number => total + toNumber(value), 0);
-const excludedExpenseKinds = ["TRANSFER", "CASH_WITHDRAWAL", "LOAN_PRINCIPAL", "LOAN_RECEIVED"] as const;
+const sum = (values: readonly unknown[]): number => values.reduce<number>((total, value) => total + toNumber(value), 0);
+const excludedExpenseKinds = ["TRANSFER", "CASH_WITHDRAWAL", "LOAN_PRINCIPAL", "LOAN_RECEIVED"];
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 
 export async function GET() {
@@ -67,8 +67,8 @@ export async function GET() {
     const hardActual = sum(expenseTransactions.filter(t => hardCategoryIds.has(t.categoryId)).map(t => t.amount));
     const variableActual = sum(expenseTransactions.filter(t => variableCategoryIds.has(t.categoryId)).map(t => t.amount));
     const uncategorizedActual = Math.max(0, actualExpenses - hardActual - variableActual);
-    const leisureActualMonth = sum(expenseTransactions.filter(t => leisurePattern.test(t.category.name)).map(t => t.amount));
-    const leisureActualWeek = sum(expenseTransactions.filter(t => new Date(t.transactionDate) >= currentWeek && leisurePattern.test(t.category.name)).map(t => t.amount));
+    const leisureActualMonth = sum(expenseTransactions.filter(t => leisurePattern.test(t.category?.name ?? "")).map(t => t.amount));
+    const leisureActualWeek = sum(expenseTransactions.filter(t => new Date(t.transactionDate) >= currentWeek && leisurePattern.test(t.category?.name ?? "")).map(t => t.amount));
     const sinkingMonthly = sum(funds.map(f => f.monthlyContribution));
     const savings = toNumber(plan.monthlySavingsTarget);
     const configuredIncome = sum(incomes.map(i => i.monthlyAmount));
