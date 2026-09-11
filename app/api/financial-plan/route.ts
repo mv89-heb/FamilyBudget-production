@@ -32,7 +32,7 @@ const toNumber = (value: unknown): number => {
   return 0;
 };
 
-const sum = (values: readonly unknown[]) => values.reduce((total, value) => total + toNumber(value), 0);
+const sum = (values: readonly unknown[]): number => values.reduce((total: number, value: unknown): number => total + toNumber(value), 0);
 const excludedExpenseKinds = ["TRANSFER", "CASH_WITHDRAWAL", "LOAN_PRINCIPAL", "LOAN_RECEIVED"] as const;
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 
