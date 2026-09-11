@@ -13,5 +13,9 @@ services:
         generateValue: true
       - key: NEXT_PUBLIC_APP_URL
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: NODE_ENV
         value: production
