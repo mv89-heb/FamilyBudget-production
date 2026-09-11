@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowUpLeft, ArrowDownLeft, BarChart3, Plus, Wallet } from "lucide-react";
@@ -101,7 +101,7 @@ export default function Dashboard() {
   );
 }
 
-function MetricCard({ title, value, icon, tone }: { title: string; value: string; icon: React.ReactNode; tone: "income" | "expense" | "balance" }) {
+function MetricCard({ title, value, icon, tone }: { title: string; value: string; icon: ReactNode; tone: "income" | "expense" | "balance" }) {
   const styles = { income: "bg-emerald-50 text-emerald-700", expense: "bg-red-50 text-red-700", balance: "bg-indigo-50 text-indigo-700" }[tone];
   return <div className="card-elevated p-5 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-start justify-between"><div><div className="text-sm font-medium text-slate-500">{title}</div><div className="mt-2 text-2xl font-black tracking-tight text-slate-900">{value}</div></div><div className={`grid h-10 w-10 place-items-center rounded-xl ${styles}`}>{icon}</div></div></div>;
 }
