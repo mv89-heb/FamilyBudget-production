@@ -69,14 +69,14 @@ export default function Dashboard() {
         <div className="flex flex-wrap items-center gap-2">
           <select aria-label="בחירת תקופה" value={month} onChange={e => setMonth(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"><option value={currentMonth()}>החודש הנוכחי</option><option value="all">כל התקופות</option></select>
           {month !== "all" && <input aria-label="בחירת חודש" type="month" value={month} onChange={e => setMonth(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm" />}
-          <Link href="/transactions" className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800"><Plus size={17} /> תנועה חדשה</Link>
+          <Link href="/transactions" className="primary-button inline-flex items-center justify-center gap-2 whitespace-nowrap"><Plus size={17} aria-hidden="true" /> <span>תנועה חדשה</span></Link>
         </div>
       </header>
 
       <section className="mb-6 overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-l from-indigo-50 via-white to-white p-5 shadow-sm">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-start gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-indigo-100 text-indigo-700"><Wallet size={21} /></div><div><div className="font-bold text-slate-900">יש לך נתונים ב-Excel?</div><p className="mt-1 text-sm text-slate-500">ייבוא חכם מזהה את העמודות ומייבא את התנועות בלי עבודה ידנית.</p></div></div>
-          <Link href="/import" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700">ייבוא Excel <ArrowLeft size={16} /></Link>
+          <Link href="/import" className="primary-button inline-flex shrink-0 items-center justify-center gap-2">ייבוא Excel <ArrowLeft size={16} aria-hidden="true" /></Link>
         </div>
       </section>
 
