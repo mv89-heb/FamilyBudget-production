@@ -20,6 +20,17 @@ function dateOrNull(value?: string | null) {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
 }
 
+function currentJerusalemMonthRange() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const key = year && month ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
+  const start = new Date(`${key}-01T00:00:00.000Z`);
+  const end = new Date(start);
+  end.setUTCMonth(end.getUTCMonth() + 1);
+  return { start, end };
+}
+
 const LIABILITY_PATTERN = /(הלווא|משכנתא|יהב[- ]אשראי|מימון ישיר|אשראי)/i;
 
 function liabilityName(category: string, note: string | null, paymentMethod: string | null) {
@@ -34,6 +45,7 @@ function liabilityName(category: string, note: string | null, paymentMethod: str
 export async function GET() {
   try {
     const user = await requireUser();
+    const monthRange = currentJerusalemMonthRange();
     const [loans, liabilityTransactions] = await Promise.all([
       prisma.loan.findMany({
         where: { userId: user.id },
@@ -45,6 +57,7 @@ export async function GET() {
           userId: user.id,
           OR: [
             { kind: "LOAN_PRINCIPAL" },
+            { kind: "LOAN_INTEREST" },
             { category: { name: { contains: "הלווא", mode: "insensitive" } } },
             { category: { name: { contains: "משכנתא", mode: "insensitive" } } },
             { category: { name: { contains: "חובות", mode: "insensitive" } } },
@@ -52,7 +65,7 @@ export async function GET() {
             { note: { contains: "מימון ישיר", mode: "insensitive" } },
           ],
         },
-        select: { id: true, kind: true, amount: true, category: { select: { name: true } }, note: true, paymentMethod: { select: { nickname: true } } },
+        select: { id: true, kind: true, amount: true, transactionDate: true, category: { select: { name: true } }, note: true, paymentMethod: { select: { nickname: true } } },
       }),
     ]);
 
@@ -70,14 +83,15 @@ export async function GET() {
       source: "MANUAL" as const,
     }));
 
-    const explicitIds = new Set(loans.flatMap((loan) => loan.transactions.map(() => loan.id)));
     const inferredMap = new Map<string, { name: string; monthlyPayment: number; principalPaid: number; interestPaid: number }>();
     for (const tx of liabilityTransactions) {
-      if (tx.kind !== "LOAN_PRINCIPAL" && !LIABILITY_PATTERN.test([tx.category.name, tx.note ?? "", tx.paymentMethod?.nickname ?? ""].join(" "))) continue;
+      const text = [tx.category.name, tx.note ?? "", tx.paymentMethod?.nickname ?? ""].join(" ");
+      if (!LIABILITY_PATTERN.test(text) && tx.kind !== "LOAN_PRINCIPAL" && tx.kind !== "LOAN_INTEREST") continue;
       const name = liabilityName(tx.category.name, tx.note, tx.paymentMethod?.nickname ?? null);
       const current = inferredMap.get(name) ?? { name, monthlyPayment: 0, principalPaid: 0, interestPaid: 0 };
       if (tx.kind === "LOAN_PRINCIPAL") current.principalPaid += Number(tx.amount);
-      else if (tx.kind === "LOAN_INTEREST") current.interestPaid += Number(tx.amount);
+      if (tx.kind === "LOAN_INTEREST") current.interestPaid += Number(tx.amount);
+      if (tx.transactionDate >= monthRange.start && tx.transactionDate < monthRange.end) current.monthlyPayment += Number(tx.amount);
       inferredMap.set(name, current);
     }
 
@@ -87,7 +101,7 @@ export async function GET() {
       originalAmount: 0,
       outstandingAmount: null,
       interestRate: null,
-      monthlyPayment: null,
+      monthlyPayment: loan.monthlyPayment || null,
       startDate: null,
       endDate: null,
       principalPaid: loan.principalPaid,
