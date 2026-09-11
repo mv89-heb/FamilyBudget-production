@@ -15,8 +15,20 @@ export async function GET(req: Request) {
   try {
     const user = await requireUser();
     const monthParam = new URL(req.url).searchParams.get("month");
-    const month = monthParam ? monthSchema.parse(monthParam) : new Date().toISOString().slice(0, 7);
-    const { start, end } = monthRange(month);
+    const month = monthParam || new Date().toISOString().slice(0, 7);
+
+    if (month === "all") {
+      const rows = await prisma.transaction.findMany({
+        where: { userId: user.id },
+        include: { category: true, paymentMethod: true },
+        orderBy: { transactionDate: "desc" },
+        take: 500,
+      });
+      return NextResponse.json(rows);
+    }
+
+    const validMonth = monthSchema.parse(month);
+    const { start, end } = monthRange(validMonth);
     const rows = await prisma.transaction.findMany({
       where: { userId: user.id, transactionDate: { gte: start, lt: end } },
       include: { category: true, paymentMethod: true },
