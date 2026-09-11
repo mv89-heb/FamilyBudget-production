@@ -7,12 +7,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum TransactionType { INCOME EXPENSE }
-enum TransactionKind { STANDARD TRANSFER CASH_WITHDRAWAL LOAN_RECEIVED LOAN_PRINCIPAL LOAN_INTEREST REFUND }
-enum PaymentMethodType { CASH CARD BANK_ACCOUNT OTHER }
-enum ImportStatus { PROCESSING COMPLETED FAILED }
-enum BudgetClass { HARD VARIABLE }
-enum IncomeType { SALARY BENEFIT ADDITIONAL }
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+enum TransactionKind {
+  STANDARD
+  TRANSFER
+  CASH_WITHDRAWAL
+  LOAN_RECEIVED
+  LOAN_PRINCIPAL
+  LOAN_INTEREST
+  REFUND
+}
+enum PaymentMethodType {
+  CASH
+  CARD
+  BANK_ACCOUNT
+  OTHER
+}
+enum ImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+enum BudgetClass {
+  HARD
+  VARIABLE
+}
+enum IncomeType {
+  SALARY
+  BENEFIT
+  ADDITIONAL
+}
 
 model User {
   id                String          @id @default(cuid())
@@ -26,7 +53,7 @@ model User {
   paymentMethods    PaymentMethod[]
   budgets           Budget[]
   categories        Category[]
-  imports            ImportJob[]
+  imports           ImportJob[]
   loans             Loan[]
   incomeSources     IncomeSource[]
   sinkingFunds      SinkingFund[]
