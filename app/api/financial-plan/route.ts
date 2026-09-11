@@ -18,7 +18,7 @@ const weekStart = (date = new Date()) => {
   d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
   return d;
 };
-const sum = (values: Array<number | string>) => values.reduce((total, value) => total + Number(value), 0);
+const sum = (values: Array<number | string>) => values.reduce((total: number, value: number | string) => Number(total) + Number(value), 0);
 const excludedExpenseKinds = ["TRANSFER", "CASH_WITHDRAWAL", "LOAN_PRINCIPAL", "LOAN_RECEIVED"] as const;
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 
