@@ -2,7 +2,9 @@
 import { useState } from "react";
 import Link from "next/link";
 
-type Result={rowsImported:number;rowsSkipped:number;categoriesCreated:number};
+type Result = { rowsImported: number; rowsSkipped: number; categoriesCreated: number };
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 async function readApiResponse(response: Response) {
   const text = await response.text();
@@ -20,4 +22,114 @@ async function readApiResponse(response: Response) {
   }
 }
 
-export default function ImportPage(){const[file,setFile]=useState<File|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(""),[result,setResult]=useState<Result|null>(null),[drag,setDrag]=useState(false);const choose=(f:File|null)=>{setError("");if(!f){setFile(null);return}if(!/\.(xlsx|xls)$/i.test(f.name))return setError("ניתן להעלות רק קובץ Excel מסוג XLSX או XLS");if(f.size>5*1024*1024)return setError("הקובץ גדול מדי (מקסימום 5MB)");setFile(f)};const submit=async()=>{if(!file)return;setBusy(true);setError("");try{const fd=new FormData();fd.append("file",file);const r=await fetch("/api/import/excel",{method:"POST",body:fd,headers:{Accept:"application/json"},cache:"no-store"});const d=await readApiResponse(r);if(!r.ok)throw Error(typeof d.error==="string"?d.error:"הייבוא נכשל");setResult(d as unknown as Result)}catch(e){setError(e instanceof Error?e.message:"אירעה שגיאה")}finally{setBusy(false)}};return <main dir="rtl" className="min-h-screen bg-slate-50 p-4 md:p-8"><div className="mx-auto max-w-5xl"><Link href="/dashboard" className="text-sm text-slate-500">← חזרה ללוח הבקרה</Link><header className="mt-4 mb-8"><h1 className="text-3xl font-bold text-slate-900">ייבוא תנועות מ-Excel</h1><p className="mt-2 text-slate-600">Gemini מנתח את הקובץ וממפה את התנועות לתוך FamilyBudget.</p></header>{result?<section className="rounded-3xl bg-white p-8 text-center shadow-sm"><div className="text-5xl">✓</div><h2 className="mt-4 text-2xl font-bold">הייבוא הושלם</h2><p className="mt-2 text-slate-600">{result.rowsImported} תנועות נוספו לחשבון שלך והן זמינות כעת במערכת.</p><div className="mx-auto mt-6 grid max-w-xl gap-3 sm:grid-cols-3"><div className="rounded-xl bg-slate-50 p-4"><b className="text-2xl">{result.rowsImported}</b><div className="text-xs text-slate-500">תנועות</div></div><div className="rounded-xl bg-slate-50 p-4"><b className="text-2xl">{result.categoriesCreated}</b><div className="text-xs text-slate-500">קטגוריות חדשות</div></div><div className="rounded-xl bg-slate-50 p-4"><b className="text-2xl">{result.rowsSkipped}</b><div className="text-xs text-slate-500">שורות שדולגו</div></div></div><div className="mt-8 flex flex-wrap justify-center gap-3"><Link href="/transactions?month=all" className="rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white">צפה בתנועות שיובאו</Link><Link href="/dashboard?month=all" className="rounded-xl border px-6 py-3 font-medium">לוח הבקרה — כל הנתונים</Link><button onClick={()=>{setFile(null);setResult(null)}} className="rounded-xl border px-6 py-3 font-medium">ייבוא נוסף</button></div></section>:<div className="grid gap-6 md:grid-cols-[1.5fr_1fr]"><section className="rounded-3xl bg-white p-6 shadow-sm"><div onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);choose(e.dataTransfer.files[0]||null)}} className={`rounded-2xl border-2 border-dashed p-10 text-center ${drag?"border-indigo-500 bg-indigo-50":"border-slate-300"}`}><div className="text-5xl">📊</div><h2 className="mt-4 text-xl font-bold">גרור לכאן קובץ Excel</h2><p className="mt-2 text-sm text-slate-500">XLSX או XLS • עד 5MB</p><label className="mt-6 inline-flex cursor-pointer rounded-xl bg-slate-900 px-6 py-3 font-semibold text-white">בחירת קובץ<input hidden type="file" accept=".xlsx,.xls" onChange={e=>choose(e.target.files?.[0]||null)}/></label>{file&&<div className="mx-auto mt-5 max-w-md rounded-xl bg-slate-50 p-4 text-right"><b>{file.name}</b><div className="text-xs text-slate-500">{(file.size/1024).toFixed(0)} KB</div><button onClick={()=>setFile(null)} className="mt-2 text-xs text-red-600">הסר קובץ</button></div>}{error&&<div role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}{file&&<button disabled={busy} onClick={submit} className="mt-5 w-full rounded-xl bg-indigo-600 px-5 py-3.5 font-bold text-white disabled:opacity-60">{busy?"🤖 Gemini מנתח את הקובץ…":"🤖 נתח והעלה למערכת"}</button>}</div></section><aside className="rounded-3xl bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">🤖 ייבוא חכם עם Gemini</h2><p className="mt-2 text-sm text-slate-500">אין צורך לסדר את הקובץ ידנית.</p><div className="mt-5 space-y-3 text-sm text-slate-700">✓ זיהוי עמודות בעברית או באנגלית<br/>✓ הפרדה בין הכנסות להוצאות<br/>✓ זיהוי קטגוריות ואמצעי תשלום<br/>✓ התעלמות משורות סיכום וריקות</div><div className="mt-6 rounded-xl bg-amber-50 p-4 text-xs leading-5 text-amber-900">🔒 אל תעלה מספרי כרטיס מלאים, CVV או סיסמאות.</div><Link href="/import/history" className="mt-5 inline-block text-sm font-medium text-indigo-600">היסטוריית ייבואים ←</Link></aside></div>}</div></main>}
+export default function ImportPage() {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<Result | null>(null);
+  const [drag, setDrag] = useState(false);
+
+  const choose = (selected: File | null) => {
+    setError("");
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+    if (!/\.(xlsx|xls)$/i.test(selected.name)) return setError("ניתן להעלות רק קובץ Excel מסוג XLSX או XLS");
+    if (selected.size > MAX_FILE_BYTES) return setError("הקובץ גדול מדי (מקסימום 10MB)");
+    setFile(selected);
+  };
+
+  const submit = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const response = await fetch("/api/import/excel", {
+        method: "POST",
+        body: fd,
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const data = await readApiResponse(response);
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "הייבוא נכשל");
+      setResult(data as unknown as Result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "אירעה שגיאה");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main dir="rtl" className="min-h-screen bg-slate-50 p-4 md:p-8">
+      <div className="mx-auto max-w-5xl">
+        <Link href="/dashboard" className="text-sm text-slate-500">← חזרה ללוח הבקרה</Link>
+        <header className="mt-4 mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">ייבוא תנועות מ-Excel</h1>
+          <p className="mt-2 text-slate-600">Gemini מנתח את הקובץ וממפה את התנועות לתוך FamilyBudget.</p>
+        </header>
+
+        {result ? (
+          <section className="rounded-3xl bg-white p-8 text-center shadow-sm">
+            <div className="text-5xl">✓</div>
+            <h2 className="mt-4 text-2xl font-bold">הייבוא הושלם</h2>
+            <p className="mt-2 text-slate-600">{result.rowsImported} תנועות נוספו לחשבון שלך והן זמינות כעת במערכת.</p>
+            <div className="mx-auto mt-6 grid max-w-xl gap-3 sm:grid-cols-3">
+              <div className="rounded-xl bg-slate-50 p-4"><b className="text-2xl">{result.rowsImported}</b><div className="text-xs text-slate-500">תנועות</div></div>
+              <div className="rounded-xl bg-slate-50 p-4"><b className="text-2xl">{result.categoriesCreated}</b><div className="text-xs text-slate-500">קטגוריות חדשות</div></div>
+              <div className="rounded-xl bg-slate-50 p-4"><b className="text-2xl">{result.rowsSkipped}</b><div className="text-xs text-slate-500">שורות שדולגו</div></div>
+            </div>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Link href="/transactions?month=all" className="rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white">צפה בתנועות שיובאו</Link>
+              <Link href="/dashboard?month=all" className="rounded-xl border px-6 py-3 font-medium">לוח הבקרה — כל הנתונים</Link>
+              <button onClick={() => { setFile(null); setResult(null); }} className="rounded-xl border px-6 py-3 font-medium">ייבוא נוסף</button>
+            </div>
+          </section>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-[1.5fr_1fr]">
+            <section className="rounded-3xl bg-white p-6 shadow-sm">
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+                onDragLeave={() => setDrag(false)}
+                onDrop={(e) => { e.preventDefault(); setDrag(false); choose(e.dataTransfer.files[0] || null); }}
+                className={`rounded-2xl border-2 border-dashed p-10 text-center ${drag ? "border-indigo-500 bg-indigo-50" : "border-slate-300"}`}
+              >
+                <div className="text-5xl">📊</div>
+                <h2 className="mt-4 text-xl font-bold">גרור לכאן קובץ Excel</h2>
+                <p className="mt-2 text-sm text-slate-500">XLSX או XLS • עד 10MB</p>
+                <label className="mt-6 inline-flex cursor-pointer rounded-xl bg-slate-900 px-6 py-3 font-semibold text-white">
+                  בחירת קובץ
+                  <input hidden type="file" accept=".xlsx,.xls" onChange={(e) => choose(e.target.files?.[0] || null)} />
+                </label>
+                {file && (
+                  <div className="mx-auto mt-5 max-w-md rounded-xl bg-slate-50 p-4 text-right">
+                    <b>{file.name}</b>
+                    <div className="text-xs text-slate-500">{(file.size / 1024).toFixed(0)} KB</div>
+                    <button onClick={() => setFile(null)} className="mt-2 text-xs text-red-600">הסר קובץ</button>
+                  </div>
+                )}
+                {error && <div role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+                {file && (
+                  <button disabled={busy} onClick={submit} className="mt-5 w-full rounded-xl bg-indigo-600 px-5 py-3.5 font-bold text-white disabled:opacity-60">
+                    {busy ? "🤖 Gemini מנתח — המערכת תנסה אוטומטית שוב אם צריך…" : "🤖 נתח והעלה למערכת"}
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <aside className="rounded-3xl bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold">🤖 ייבוא חכם עם Gemini</h2>
+              <p className="mt-2 text-sm text-slate-500">אין צורך לסדר את הקובץ ידנית.</p>
+              <div className="mt-5 space-y-3 text-sm text-slate-700">✓ זיהוי עמודות בעברית או באנגלית<br />✓ הפרדה בין הכנסות להוצאות<br />✓ זיהוי קטגוריות ואמצעי תשלום<br />✓ התעלמות משורות סיכום וריקות<br />✓ חלוקה אוטומטית לקבוצות אם הקובץ גדול<br />✓ ניסיון חוזר ומודל חלופי במקרה של עיכוב</div>
+              <div className="mt-6 rounded-xl bg-amber-50 p-4 text-xs leading-5 text-amber-900">🔒 אל תעלה מספרי כרטיס מלאים, CVV או סיסמאות.</div>
+              <Link href="/import/history" className="mt-5 inline-block text-sm font-medium text-indigo-600">היסטוריית ייבואים ←</Link>
+            </aside>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
