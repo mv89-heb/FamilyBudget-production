@@ -33,7 +33,6 @@ const toNumber = (value: unknown): number => {
 };
 
 const sum = (values: readonly unknown[]): number => values.reduce<number>((total, value) => total + toNumber(value), 0);
-const excludedExpenseKinds = ["TRANSFER", "CASH_WITHDRAWAL", "LOAN_PRINCIPAL", "LOAN_RECEIVED"];
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 
 export async function GET() {
@@ -58,7 +57,13 @@ export async function GET() {
     ]);
 
     const netIncomeActual = sum(transactions.filter(t => t.type === "INCOME" && t.kind !== "LOAN_RECEIVED" && t.kind !== "TRANSFER").map(t => t.amount));
-    const expenseTransactions = transactions.filter(t => t.type === "EXPENSE" && !excludedExpenseKinds.includes(t.kind));
+    const expenseTransactions = transactions.filter(
+      t => t.type === "EXPENSE"
+        && t.kind !== "TRANSFER"
+        && t.kind !== "CASH_WITHDRAWAL"
+        && t.kind !== "LOAN_PRINCIPAL"
+        && t.kind !== "LOAN_RECEIVED",
+    );
     const actualExpenses = sum(expenseTransactions.map(t => t.amount));
     const hardCategoryIds = new Set(budgets.filter(b => b.class === "HARD").map(b => b.categoryId));
     const variableCategoryIds = new Set(budgets.filter(b => b.class === "VARIABLE").map(b => b.categoryId));
