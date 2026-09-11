@@ -11,7 +11,6 @@ enum TransactionType {
   INCOME
   EXPENSE
 }
-
 enum TransactionKind {
   STANDARD
   TRANSFER
@@ -21,18 +20,25 @@ enum TransactionKind {
   LOAN_INTEREST
   REFUND
 }
-
 enum PaymentMethodType {
   CASH
   CARD
   BANK_ACCOUNT
   OTHER
 }
-
 enum ImportStatus {
   PROCESSING
   COMPLETED
   FAILED
+}
+enum BudgetClass {
+  HARD
+  VARIABLE
+}
+enum IncomeType {
+  SALARY
+  BENEFIT
+  ADDITIONAL
 }
 
 model User {
@@ -47,8 +53,11 @@ model User {
   paymentMethods    PaymentMethod[]
   budgets           Budget[]
   categories        Category[]
-  imports            ImportJob[]
+  imports           ImportJob[]
   loans             Loan[]
+  incomeSources     IncomeSource[]
+  sinkingFunds      SinkingFund[]
+  financialPlan     FinancialPlan?
 }
 
 model Category {
@@ -124,17 +133,60 @@ model Transaction {
 }
 
 model Budget {
-  id         String   @id @default(cuid())
+  id         String      @id @default(cuid())
   userId     String
   categoryId String
   month      DateTime
-  limit      Decimal  @db.Decimal(12, 2)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  limit      Decimal     @db.Decimal(12, 2)
+  class      BudgetClass @default(VARIABLE)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   @@unique([userId, categoryId, month])
   @@index([userId, month])
+  @@index([userId, class])
+}
+
+model IncomeSource {
+  id            String      @id @default(cuid())
+  userId        String
+  name          String
+  type          IncomeType
+  monthlyAmount Decimal     @db.Decimal(12, 2)
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, active])
+}
+
+model SinkingFund {
+  id                  String   @id @default(cuid())
+  userId              String
+  name                String
+  targetAmount        Decimal  @db.Decimal(12, 2)
+  currentAmount       Decimal  @default(0) @db.Decimal(12, 2)
+  monthlyContribution Decimal  @db.Decimal(12, 2)
+  dueDate             DateTime?
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, active])
+  @@index([userId, dueDate])
+}
+
+model FinancialPlan {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  monthlySavingsTarget  Decimal  @default(0) @db.Decimal(12, 2)
+  weeklyLeisureBudget   Decimal  @default(0) @db.Decimal(12, 2)
+  emergencyFundAmount   Decimal  @default(0) @db.Decimal(12, 2)
+  emergencyTargetMonths Int      @default(3)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ImportJob {
@@ -146,7 +198,7 @@ model ImportJob {
   rowsDetected          Int           @default(0)
   rowsAnalyzed          Int           @default(0)
   rowsImported          Int           @default(0)
-  rowsSkipped            Int           @default(0)
+  rowsSkipped           Int           @default(0)
   categoriesCreated     Int           @default(0)
   paymentMethodsCreated Int           @default(0)
   errorMessage          String?
