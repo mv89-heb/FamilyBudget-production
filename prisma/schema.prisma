@@ -198,6 +198,7 @@ model ImportJob {
   rowsDetected          Int           @default(0)
   rowsAnalyzed          Int           @default(0)
   rowsImported          Int           @default(0)
+  rowsUpdated           Int           @default(0)
   rowsSkipped           Int           @default(0)
   categoriesCreated     Int           @default(0)
   paymentMethodsCreated Int           @default(0)
