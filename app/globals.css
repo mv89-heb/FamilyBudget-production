@@ -31,12 +31,22 @@ button { cursor: pointer; }
 .input-professional::placeholder { color: #94a3b8; }
 .input-professional:hover { border-color: #cbd5e1; }
 .input-professional:focus { border-color: #6366f1; background: #fff; box-shadow: 0 0 0 4px rgba(99,102,241,.10); outline: none; }
+.field-group { display: flex; flex-direction: column; gap: 6px; }
+.field-label { color: #475569; font-size: 12px; font-weight: 750; }
+.field-control { width: 100%; min-height: 44px; border: 1px solid #dfe5ee; border-radius: 12px; background: #fff; padding: 0 13px; color: #172033; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+.field-control:hover { border-color: #cbd5e1; }
+.field-control:focus { border-color: #6366f1; background: #fff; box-shadow: 0 0 0 4px rgba(99,102,241,.10); outline: none; }
 .primary-button, .secondary-button { min-height: 44px; border-radius: 12px; padding: 0 18px; font-size: 14px; font-weight: 750; transition: transform .12s ease, box-shadow .16s ease, background .16s ease; }
 .primary-button { border: 1px solid var(--primary); background: var(--primary); color: #fff; box-shadow: 0 6px 16px rgba(79,70,229,.18); }
 .primary-button:hover:not(:disabled) { background: var(--primary-dark); box-shadow: 0 8px 20px rgba(79,70,229,.24); }
 .primary-button:active:not(:disabled), .secondary-button:active:not(:disabled) { transform: translateY(1px); }
 .secondary-button { border: 1px solid #dbe2ea; background: #fff; color: #334155; }
 .secondary-button:hover:not(:disabled) { background: #f8fafc; border-color: #cbd5e1; }
+.metric-label { color: #64748b; font-size: 12px; font-weight: 700; }
+.metric-value { color: #111827; font-size: 23px; font-weight: 850; letter-spacing: -.5px; }
+.status-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.status-badge-success { background: #ecfdf3; color: #047857; }
+.status-badge-danger { background: #fef2f2; color: #b91c1c; }
 
 .app-sidebar { position: sticky; top: 0; z-index: 20; width: 264px; height: 100vh; flex: 0 0 264px; background: linear-gradient(180deg, #101827 0%, #0d1421 100%); color: #fff; box-shadow: 8px 0 30px rgba(15, 23, 42, .08); }
 .sidebar-inner { height: 100%; display: flex; flex-direction: column; padding: 24px 16px 18px; }
