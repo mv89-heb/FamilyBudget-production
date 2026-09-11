@@ -109,6 +109,7 @@ async function requestGemini(model: string, rows: unknown[][]) {
 async function analyzeChunk(rows: unknown[][]) { let lastError: unknown; for (const model of GEMINI_MODELS) for (let attempt = 0; attempt <= GEMINI_RETRIES; attempt++) { try { return await requestGemini(model, rows); } catch (error) { lastError = error; if (error instanceof Error && ["GEMINI_NOT_CONFIGURED", "GEMINI_AUTH_FAILED", "GEMINI_EMPTY_RESPONSE", "GEMINI_INVALID_RESPONSE"].includes(error.message)) throw error; if (!isRetryable(error) || attempt === GEMINI_RETRIES) break; await sleep(750 * (attempt + 1)); } } throw lastError instanceof Error ? lastError : new Error("GEMINI_REQUEST_FAILED"); }
 async function analyzeWithGemini(rawRows: unknown[][]) { if (!rawRows.length) return [] as GeminiRow[]; const headers = rawRows[0], dataRows = rawRows.slice(1), results: GeminiRow[] = []; for (let index = 0; index < dataRows.length; index += GEMINI_CHUNK_ROWS) results.push(...await analyzeChunk([headers, ...dataRows.slice(index, index + GEMINI_CHUNK_ROWS)])); return results.slice(0, MAX_ROWS); }
 function fingerprint(row: ClassifiedRow) { return createHash("sha256").update(JSON.stringify({ date: row.date, amount: row.amount.toFixed(2), type: row.type, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" })).digest("hex"); }
+function legacyKey(row: { date: string; amount: number; type: string; note?: string | null; paymentMethodName?: string | null }) { return JSON.stringify({ date: row.date, amount: row.amount.toFixed(2), type: row.type, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" }); }
 function extractSheetRows(workbook: XLSX.WorkBook) { const sheets: unknown[][][] = []; let total = 0; for (const sheetName of workbook.SheetNames) { const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: null, raw: true }); const nonEmpty = rows.filter((row) => Array.isArray(row) && row.some((value) => value !== null && String(value).trim() !== "")); if (nonEmpty.length >= 2) { const limited = nonEmpty.slice(0, MAX_ROWS - total + 1); sheets.push(limited); total += Math.max(0, limited.length - 1); } if (total >= MAX_ROWS) break; } return sheets; }
 
 export async function POST(req: Request) {
@@ -142,7 +143,22 @@ export async function POST(req: Request) {
     const fingerprints = uniqueRows.map(fingerprint);
     const existing = await prisma.transaction.findMany({ where: { userId: user.id, fingerprint: { in: fingerprints } }, select: { id: true, fingerprint: true } });
     const existingByFingerprint = new Map(existing.filter((row): row is { id: string; fingerprint: string } => Boolean(row.fingerprint)).map((row) => [row.fingerprint, row.id]));
-    const rowsToCreate = uniqueRows.filter((row) => !existingByFingerprint.has(fingerprint(row)));
+    const minDate = new Date(`${uniqueRows.reduce((min, row) => row.date < min ? row.date : min, uniqueRows[0].date)}T00:00:00.000Z`);
+    const maxDate = new Date(`${uniqueRows.reduce((max, row) => row.date > max ? row.date : max, uniqueRows[0].date)}T00:00:00.000Z`);
+    const legacyTransactions = await prisma.transaction.findMany({ where: { userId: user.id, fingerprint: null, transactionDate: { gte: minDate, lte: maxDate } }, select: { id: true, transactionDate: true, amount: true, type: true, note: true, paymentMethod: { select: { nickname: true } }, createdAt: true }, orderBy: { createdAt: "asc" } });
+    const legacyByKey = new Map<string, string[]>();
+    for (const transaction of legacyTransactions) {
+      const key = legacyKey({ date: transaction.transactionDate.toISOString().slice(0, 10), amount: Number(transaction.amount), type: transaction.type, note: transaction.note, paymentMethodName: transaction.paymentMethod?.nickname ?? null });
+      const ids = legacyByKey.get(key) ?? []; ids.push(transaction.id); legacyByKey.set(key, ids);
+    }
+    const legacyMatches = new Map<string, string>(); const claimedLegacyIds = new Set<string>();
+    for (const row of uniqueRows) {
+      const fp = fingerprint(row); if (existingByFingerprint.has(fp)) continue;
+      const candidates = (legacyByKey.get(legacyKey(row)) ?? []).filter((id) => !claimedLegacyIds.has(id));
+      const legacyId = candidates[0];
+      if (legacyId) { legacyMatches.set(fp, legacyId); claimedLegacyIds.add(legacyId); }
+    }
+    const rowsToCreate = uniqueRows.filter((row) => !existingByFingerprint.has(fingerprint(row)) && !legacyMatches.has(fingerprint(row)));
     const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map((category) => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category]));
     const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id } }); const methodMap = new Map(methods.map((method) => [method.nickname.trim().toLocaleLowerCase("he"), method]));
     let createdCategories = 0; let createdPaymentMethods = 0; let updatedRows = 0;
@@ -153,7 +169,7 @@ export async function POST(req: Request) {
         let paymentMethodId: string | null = null; const methodName = row.paymentMethodName?.trim();
         if (methodName) { const key = methodName.toLocaleLowerCase("he"); let method = methodMap.get(key); if (!method) { method = await tx.paymentMethod.create({ data: { userId: user.id, nickname: methodName, type: "OTHER" } }); methodMap.set(key, method); createdPaymentMethods++; } paymentMethodId = method.id; }
         const data = { type: row.type, kind: row.kind, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null, fingerprint: fingerprint(row) };
-        const existingId = existingByFingerprint.get(fingerprint(row));
+        const existingId = existingByFingerprint.get(fingerprint(row)) ?? legacyMatches.get(fingerprint(row));
         if (existingId) { await tx.transaction.update({ where: { id: existingId }, data }); updatedRows++; }
         else { await tx.transaction.create({ data: { ...data, userId: user.id } }); }
       }
