@@ -85,9 +85,6 @@ export async function GET() {
     const hardBudgetLimit = sum(budgets.filter(b => b.class === "HARD").map(b => b.limit));
     const variableBudgetLimit = sum(budgets.filter(b => b.class === "VARIABLE").map(b => b.limit));
 
-    // A real transaction must affect the current-month picture even when the user
-    // has not created a budget row for its category yet. Explicit budget classes win;
-    // otherwise essential categories are classified automatically as HARD.
     const hardActual = sum(expenseTransactions.filter(t =>
       hardCategoryIds.has(t.categoryId) ||
       (!variableCategoryIds.has(t.categoryId) && isAutomaticHardExpense(t.category?.name ?? ""))
@@ -106,8 +103,6 @@ export async function GET() {
     const budgetIncome = netIncomeActual > 0 ? netIncomeActual : configuredIncome;
     const debtPayment = sum(transactions.filter(t => t.kind === "LOAN_PRINCIPAL" || t.kind === "LOAN_INTEREST").map(t => t.amount));
 
-    // "Available" is cash that is genuinely left: actual expenses and debt
-    // repayments are deducted before sinking funds and the planned savings target.
     const actualAvailable = budgetIncome - actualExpenses - debtPayment - sinkingMonthly - savings;
     const availableVariable = Math.max(0, actualAvailable);
 
@@ -133,20 +128,62 @@ export async function GET() {
             ? `ההוצאות המשתנות עברו את התקציב החודשי ב-${Math.round(variableActual - variableBudgetLimit).toLocaleString("he-IL")} ₪. כדאי לצמצם את ההוצאות המשתנות עד סוף החודש.`
             : `נשארו ${Math.round(availableVariable).toLocaleString("he-IL")} ₪ בפועל אחרי ההוצאות, החזרי החוב, החיסכון והקופות.`;
 
-    const budgetCategories = budgets
-      .map(b => {
-        const actual = sum(expenseTransactions.filter(t => t.categoryId === b.categoryId).map(t => t.amount));
-        return {
-          categoryId: b.categoryId,
-          name: b.category.name,
-          class: b.class,
-          section: sectionForCategory(b.category.name),
-          limit: toNumber(b.limit),
-          actual,
-          remaining: Math.max(0, toNumber(b.limit) - actual),
-          percent: toNumber(b.limit) > 0 ? (actual / toNumber(b.limit)) * 100 : 0,
-        };
-      })
+    const budgetCategoriesMap = new Map<string, {
+      categoryId: string;
+      name: string;
+      class: "HARD" | "VARIABLE";
+      section: string;
+      limit: number;
+      actual: number;
+      remaining: number;
+      percent: number;
+    }>();
+
+    for (const budget of budgets) {
+      const limit = toNumber(budget.limit);
+      const actual = sum(expenseTransactions.filter(t => t.categoryId === budget.categoryId).map(t => t.amount));
+      budgetCategoriesMap.set(budget.categoryId, {
+        categoryId: budget.categoryId,
+        name: budget.category.name,
+        class: budget.class,
+        section: sectionForCategory(budget.category.name),
+        limit,
+        actual,
+        remaining: Math.max(0, limit - actual),
+        percent: limit > 0 ? (actual / limit) * 100 : 0,
+      });
+    }
+
+    // Actual transactions must also be visible in the breakdown when no monthly
+    // Budget row exists. Essential categories become HARD automatically and get an
+    // actual-only frame so they cannot disappear from the monthly decision screen.
+    const actualByCategory = new Map<string, { name: string; actual: number }>();
+    for (const transaction of expenseTransactions) {
+      if (!transaction.categoryId) continue;
+      const current = actualByCategory.get(transaction.categoryId);
+      actualByCategory.set(transaction.categoryId, {
+        name: transaction.category?.name ?? "אחר",
+        actual: (current?.actual ?? 0) + toNumber(transaction.amount),
+      });
+    }
+
+    for (const [categoryId, value] of actualByCategory) {
+      if (budgetCategoriesMap.has(categoryId)) continue;
+      const isHard = isAutomaticHardExpense(value.name);
+      const actual = value.actual;
+      budgetCategoriesMap.set(categoryId, {
+        categoryId,
+        name: value.name,
+        class: isHard ? "HARD" : "VARIABLE",
+        section: sectionForCategory(value.name),
+        limit: actual,
+        actual,
+        remaining: 0,
+        percent: 100,
+      });
+    }
+
+    const budgetCategories = Array.from(budgetCategoriesMap.values())
       .sort((a, b) => a.section.localeCompare(b.section, "he") || b.actual - a.actual || a.name.localeCompare(b.name, "he"));
 
     return NextResponse.json({
@@ -159,7 +196,7 @@ export async function GET() {
         netIncome: budgetIncome,
         configuredIncome,
         netIncomeActual,
-        fixedCommitments: hardActual + debtPayment,
+        fixedCommitments: hardActual,
         hardActual,
         hardBudgetLimit,
         sinkingMonthly,
