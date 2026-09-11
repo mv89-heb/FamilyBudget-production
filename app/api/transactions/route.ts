@@ -16,39 +16,35 @@ const transactionInclude = {
   paymentMethod: { select: { id: true, nickname: true, last4: true, type: true } },
 } as const;
 
+const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 100;
+
+function pagination(searchParams: URLSearchParams) {
+  const rawPage = Number.parseInt(searchParams.get("page") || "1", 10);
+  const rawLimit = Number.parseInt(searchParams.get("limit") || String(DEFAULT_PAGE_SIZE), 10);
+  const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1;
+  const limit = Number.isFinite(rawLimit) ? Math.min(MAX_PAGE_SIZE, Math.max(1, rawLimit)) : DEFAULT_PAGE_SIZE;
+  return { page, limit, skip: (page - 1) * limit };
+}
+
 export async function GET(req: Request) {
   try {
     const user = await requireUser();
-    const monthParam = new URL(req.url).searchParams.get("month");
+    const searchParams = new URL(req.url).searchParams;
+    const monthParam = searchParams.get("month");
     const month = monthParam || new Date().toISOString().slice(0, 7);
+    const { page, limit, skip } = pagination(searchParams);
 
-    if (month === "all") {
-      const rows = await prisma.transaction.findMany({
-        where: { userId: user.id },
-        select: {
-          id: true,
-          userId: true,
-          type: true,
-          amount: true,
-          transactionDate: true,
-          categoryId: true,
-          paymentMethodId: true,
-          note: true,
-          createdAt: true,
-          updatedAt: true,
-          category: transactionInclude.category,
-          paymentMethod: transactionInclude.paymentMethod,
-        },
-        orderBy: { transactionDate: "desc" },
-        take: 500,
-      });
-      return NextResponse.json(rows);
-    }
+    const where = month === "all"
+      ? { userId: user.id }
+      : (() => {
+          const validMonth = monthSchema.parse(month);
+          const { start, end } = monthRange(validMonth);
+          return { userId: user.id, transactionDate: { gte: start, lt: end } };
+        })();
 
-    const validMonth = monthSchema.parse(month);
-    const { start, end } = monthRange(validMonth);
     const rows = await prisma.transaction.findMany({
-      where: { userId: user.id, transactionDate: { gte: start, lt: end } },
+      where,
       select: {
         id: true,
         userId: true,
@@ -63,10 +59,19 @@ export async function GET(req: Request) {
         category: transactionInclude.category,
         paymentMethod: transactionInclude.paymentMethod,
       },
-      orderBy: { transactionDate: "desc" },
-      take: 500,
+      orderBy: [{ transactionDate: "desc" }, { id: "desc" }],
+      skip,
+      take: limit + 1,
     });
-    return NextResponse.json(rows);
+
+    // Keep the existing response shape (array) while exposing pagination through headers.
+    const hasNextPage = rows.length > limit;
+    const result = hasNextPage ? rows.slice(0, limit) : rows;
+    const response = NextResponse.json(result);
+    response.headers.set("X-Page", String(page));
+    response.headers.set("X-Page-Size", String(limit));
+    response.headers.set("X-Has-Next-Page", String(hasNextPage));
+    return response;
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
     return NextResponse.json({ error: "לא ניתן לטעון תנועות" }, { status: 400 });
