@@ -12,6 +12,7 @@ const items: Item[] = [
   { href: "/plan", label: "תוכנית החודש", icon: CalendarDays },
   { href: "/transactions", label: "תנועות", icon: CreditCard },
   { href: "/income-expenses", label: "הכנסות והוצאות", icon: Wallet },
+  { href: "/credit-card-transactions", label: "תנועות אשראי", icon: CreditCard },
   { href: "/import", label: "ייבוא Excel", icon: FileSpreadsheet },
   { href: "/budgets", label: "תקציבים", icon: Target },
   { href: "/loans", label: "הלוואות", icon: PiggyBank },
