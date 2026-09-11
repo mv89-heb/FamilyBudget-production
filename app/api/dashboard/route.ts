@@ -14,20 +14,22 @@ export async function GET(req: Request) {
   try {
     const user = await requireUser();
     const param = new URL(req.url).searchParams.get("month");
-    const month = monthSchema.parse(param || new Date().toISOString().slice(0, 7));
-    const { start, end } = monthRange(month);
+    const isAll = param === "all";
+    const month = isAll ? "all" : monthSchema.parse(param || new Date().toISOString().slice(0, 7));
+    const range = isAll ? null : monthRange(month);
+    const dateFilter = range ? { transactionDate: { gte: range.start, lt: range.end } } : {};
 
     const [rows, totals, categoryRows, categories] = await Promise.all([
       prisma.transaction.findMany({
-        where: { userId: user.id, transactionDate: { gte: start, lt: end } },
+        where: { userId: user.id, ...dateFilter },
         include: { category: true, paymentMethod: true },
         orderBy: { transactionDate: "desc" }, take: 20,
       }),
       prisma.transaction.groupBy({
-        by: ["type"], where: { userId: user.id, transactionDate: { gte: start, lt: end } }, _sum: { amount: true },
+        by: ["type"], where: { userId: user.id, ...dateFilter }, _sum: { amount: true },
       }),
       prisma.transaction.groupBy({
-        by: ["categoryId"], where: { userId: user.id, type: "EXPENSE", transactionDate: { gte: start, lt: end } }, _sum: { amount: true },
+        by: ["categoryId"], where: { userId: user.id, type: "EXPENSE", ...dateFilter }, _sum: { amount: true },
       }),
       prisma.category.findMany({ where: { userId: user.id, type: "EXPENSE" }, select: { id: true, name: true } }),
     ]);
