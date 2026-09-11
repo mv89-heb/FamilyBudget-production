@@ -22,8 +22,17 @@ export async function GET(req: Request) {
     const [rows, totals, categoryRows, categories] = await Promise.all([
       prisma.transaction.findMany({
         where: { userId: user.id, ...dateFilter },
-        include: { category: true, paymentMethod: true },
-        orderBy: { transactionDate: "desc" }, take: 20,
+        select: {
+          id: true,
+          type: true,
+          amount: true,
+          transactionDate: true,
+          note: true,
+          category: { select: { name: true } },
+          paymentMethod: { select: { nickname: true, last4: true } },
+        },
+        orderBy: { transactionDate: "desc" },
+        take: 20,
       }),
       prisma.transaction.groupBy({
         by: ["type"], where: { userId: user.id, ...dateFilter }, _sum: { amount: true },
