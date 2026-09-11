@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
-type Result = { rowsImported: number; rowsSkipped: number; categoriesCreated: number; analysisMode?: "local" | "gemini" };
+type Result = { rowsImported: number; rowsUpdated: number; rowsSkipped: number; categoriesCreated: number; analysisMode?: "local" | "gemini"; alreadyProcessed?: boolean };
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 async function readApiResponse(response: Response) {
@@ -37,6 +37,7 @@ export default function ImportPage() {
       setResult(data as unknown as Result);
     } catch (e) { setError(e instanceof Error ? e.message : "אירעה שגיאה"); } finally { setBusy(false); }
   };
+  const processedAgain = Boolean(result?.alreadyProcessed);
 
   return (
     <div className="space-y-6">
@@ -48,10 +49,10 @@ export default function ImportPage() {
       {result ? (
         <section className="card-elevated p-6 text-center md:p-10">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-3xl text-emerald-600">✓</div>
-          <div className="eyebrow mt-5">הייבוא הושלם בהצלחה</div>
-          <h2 className="mt-2 text-2xl font-extrabold text-slate-900">הנתונים שלך מוכנים לעבודה</h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">{result.rowsImported} תנועות נוספו לחשבון. {result.rowsSkipped ? `${result.rowsSkipped} שורות דולגו.` : "לא נמצאו שורות שצריך לדלג עליהן."}</p>
-          <div className="mx-auto mt-7 grid max-w-2xl gap-3 sm:grid-cols-3"><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.rowsImported}</b><div className="mt-1 text-xs text-slate-500">תנועות שנוספו</div></div><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.categoriesCreated}</b><div className="mt-1 text-xs text-slate-500">קטגוריות חדשות</div></div><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.rowsSkipped}</b><div className="mt-1 text-xs text-slate-500">שורות שדולגו</div></div></div>
+          <div className="eyebrow mt-5">{processedAgain ? "הקובץ כבר יובא בעבר" : "הייבוא הושלם בהצלחה"}</div>
+          <h2 className="mt-2 text-2xl font-extrabold text-slate-900">{processedAgain ? "לא נוצרו כפילויות" : "הנתונים שלך מוכנים לעבודה"}</h2>
+          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">{processedAgain ? "המערכת זיהתה שזה אותו קובץ שכבר עובד ולכן לא יצרה תנועות נוספות." : `${result.rowsImported} תנועות נוספו לחשבון.`}{result.rowsUpdated ? ` ${result.rowsUpdated} תנועות עודכנו.` : ""}{result.rowsSkipped ? ` ${result.rowsSkipped} שורות דולגו.` : ""}</p>
+          <div className="mx-auto mt-7 grid max-w-3xl gap-3 sm:grid-cols-4"><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.rowsImported}</b><div className="mt-1 text-xs text-slate-500">תנועות שנוספו</div></div><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.rowsUpdated}</b><div className="mt-1 text-xs text-slate-500">תנועות שעודכנו</div></div><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.categoriesCreated}</b><div className="mt-1 text-xs text-slate-500">קטגוריות חדשות</div></div><div className="rounded-2xl border bg-slate-50 p-5"><b className="text-2xl text-slate-900">{result.rowsSkipped}</b><div className="mt-1 text-xs text-slate-500">שורות שדולגו</div></div></div>
           <div className="mt-8 flex flex-wrap justify-center gap-3"><Link href="/transactions?month=all" className="primary-button inline-flex items-center justify-center">צפה בתנועות</Link><Link href="/dashboard?month=all" className="secondary-button inline-flex items-center justify-center">לוח הבקרה</Link><button onClick={() => { setFile(null); setResult(null); }} className="secondary-button">ייבוא נוסף</button></div>
         </section>
       ) : (
@@ -65,13 +66,13 @@ export default function ImportPage() {
               <div className="mt-4 text-xs text-slate-400">XLSX או XLS · עד 10MB</div>
               {file && <div className="mx-auto mt-6 flex max-w-lg items-center justify-between gap-4 rounded-2xl border bg-white p-4 text-right shadow-sm"><div className="min-w-0"><b className="block truncate text-sm text-slate-900">{file.name}</b><span className="text-xs text-slate-500">{(file.size / 1024).toFixed(0)} KB · מוכן לייבוא</span></div><button type="button" onClick={() => setFile(null)} className="shrink-0 text-xs font-semibold text-red-600">הסר</button></div>}
               {error && <div role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</div>}
-              {file && <button disabled={busy} onClick={submit} className="primary-button mt-5 w-full disabled:cursor-wait disabled:opacity-60">{busy ? "Gemini מנתח את הקובץ…" : "נתח והעלה למערכת"}</button>}
+              {file && <button disabled={busy} onClick={submit} className="primary-button mt-5 w-full disabled:cursor-wait disabled:opacity-60">{busy ? "מנתח את הקובץ…" : "נתח והעלה למערכת"}</button>}
             </div>
           </section>
 
           <aside className="card-elevated p-6">
             <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-lg">✦</div><div><h2 className="font-bold text-slate-900">ייבוא חכם</h2><p className="text-xs text-slate-500">פחות עבודה ידנית, יותר סדר.</p></div></div>
-            <div className="mt-6 space-y-3">{["זיהוי עמודות בעברית ובאנגלית", "הפרדה בין הכנסות להוצאות", "זיהוי קטגוריות ואמצעי תשלום", "התעלמות משורות סיכום וריקות", "חלוקה לקבוצות בקבצים גדולים", "ניסיון חוזר אוטומטי במקרה של עיכוב"].map(item => <div key={item} className="flex gap-3 text-sm text-slate-700"><span className="text-emerald-600">✓</span><span>{item}</span></div>)}</div>
+            <div className="mt-6 space-y-3">{["זיהוי עמודות בעברית ובאנגלית", "הפרדה בין הכנסות להוצאות", "זיהוי קטגוריות ואמצעי תשלום", "התעלמות משורות סיכום וריקות", "חלוקה לקבוצות בקבצים גדולים", "ניסיון חוזר אוטומטי במקרה של עיכוב", "מניעת כפילויות בייבוא חוזר"].map(item => <div key={item} className="flex gap-3 text-sm text-slate-700"><span className="text-emerald-600">✓</span><span>{item}</span></div>)}</div>
             <div className="mt-6 rounded-2xl border border-amber-100 bg-amber-50 p-4"><div className="text-sm font-bold text-amber-900">🔒 פרטיות לפני הכול</div><p className="mt-1 text-xs leading-5 text-amber-800">אל תעלה מספרי כרטיס מלאים, CVV, סיסמאות או מפתחות גישה.</p></div>
           </aside>
         </div>
