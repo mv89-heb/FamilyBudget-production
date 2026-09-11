@@ -11,6 +11,11 @@ function monthRange(month: string) {
   return { start, end };
 }
 
+const transactionInclude = {
+  category: { select: { id: true, name: true, type: true } },
+  paymentMethod: { select: { id: true, nickname: true, last4: true, type: true } },
+} as const;
+
 export async function GET(req: Request) {
   try {
     const user = await requireUser();
@@ -20,7 +25,20 @@ export async function GET(req: Request) {
     if (month === "all") {
       const rows = await prisma.transaction.findMany({
         where: { userId: user.id },
-        include: { category: true, paymentMethod: true },
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          amount: true,
+          transactionDate: true,
+          categoryId: true,
+          paymentMethodId: true,
+          note: true,
+          createdAt: true,
+          updatedAt: true,
+          category: transactionInclude.category,
+          paymentMethod: transactionInclude.paymentMethod,
+        },
         orderBy: { transactionDate: "desc" },
         take: 500,
       });
@@ -31,7 +49,20 @@ export async function GET(req: Request) {
     const { start, end } = monthRange(validMonth);
     const rows = await prisma.transaction.findMany({
       where: { userId: user.id, transactionDate: { gte: start, lt: end } },
-      include: { category: true, paymentMethod: true },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        amount: true,
+        transactionDate: true,
+        categoryId: true,
+        paymentMethodId: true,
+        note: true,
+        createdAt: true,
+        updatedAt: true,
+        category: transactionInclude.category,
+        paymentMethod: transactionInclude.paymentMethod,
+      },
       orderBy: { transactionDate: "desc" },
       take: 500,
     });
