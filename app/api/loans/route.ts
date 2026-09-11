@@ -20,15 +20,43 @@ function dateOrNull(value?: string | null) {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
 }
 
+const LIABILITY_PATTERN = /(הלווא|משכנתא|יהב[- ]אשראי|מימון ישיר|אשראי)/i;
+
+function liabilityName(category: string, note: string | null, paymentMethod: string | null) {
+  const text = [note ?? "", paymentMethod ?? "", category].join(" ");
+  if (/יהב[- ]אשראי/i.test(text)) return "בנק יהב - אשראי";
+  if (/מימון ישיר/i.test(text)) return "מימון ישיר";
+  if (/משכנתא|לאומי למשכנתאות/i.test(text)) return "משכנתא";
+  if (/אשראי/i.test(text)) return "אשראי";
+  return "הלוואה";
+}
+
 export async function GET() {
   try {
     const user = await requireUser();
-    const loans = await prisma.loan.findMany({
-      where: { userId: user.id },
-      include: { transactions: { select: { kind: true, amount: true } } },
-      orderBy: { createdAt: "desc" },
-    });
-    return NextResponse.json(loans.map((loan) => ({
+    const [loans, liabilityTransactions] = await Promise.all([
+      prisma.loan.findMany({
+        where: { userId: user.id },
+        include: { transactions: { select: { kind: true, amount: true } } },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.transaction.findMany({
+        where: {
+          userId: user.id,
+          OR: [
+            { kind: "LOAN_PRINCIPAL" },
+            { category: { name: { contains: "הלווא", mode: "insensitive" } } },
+            { category: { name: { contains: "משכנתא", mode: "insensitive" } } },
+            { category: { name: { contains: "חובות", mode: "insensitive" } } },
+            { note: { contains: "יהב-אשראי", mode: "insensitive" } },
+            { note: { contains: "מימון ישיר", mode: "insensitive" } },
+          ],
+        },
+        select: { id: true, kind: true, amount: true, category: { select: { name: true } }, note: true, paymentMethod: { select: { nickname: true } } },
+      }),
+    ]);
+
+    const explicit = loans.map((loan) => ({
       id: loan.id,
       name: loan.name,
       originalAmount: Number(loan.originalAmount),
@@ -39,7 +67,35 @@ export async function GET() {
       endDate: loan.endDate?.toISOString().slice(0, 10) ?? null,
       principalPaid: loan.transactions.filter((t) => t.kind === "LOAN_PRINCIPAL").reduce((sum, t) => sum + Number(t.amount), 0),
       interestPaid: loan.transactions.filter((t) => t.kind === "LOAN_INTEREST").reduce((sum, t) => sum + Number(t.amount), 0),
-    })));
+      source: "MANUAL" as const,
+    }));
+
+    const explicitIds = new Set(loans.flatMap((loan) => loan.transactions.map(() => loan.id)));
+    const inferredMap = new Map<string, { name: string; monthlyPayment: number; principalPaid: number; interestPaid: number }>();
+    for (const tx of liabilityTransactions) {
+      if (tx.kind !== "LOAN_PRINCIPAL" && !LIABILITY_PATTERN.test([tx.category.name, tx.note ?? "", tx.paymentMethod?.nickname ?? ""].join(" "))) continue;
+      const name = liabilityName(tx.category.name, tx.note, tx.paymentMethod?.nickname ?? null);
+      const current = inferredMap.get(name) ?? { name, monthlyPayment: 0, principalPaid: 0, interestPaid: 0 };
+      if (tx.kind === "LOAN_PRINCIPAL") current.principalPaid += Number(tx.amount);
+      else if (tx.kind === "LOAN_INTEREST") current.interestPaid += Number(tx.amount);
+      inferredMap.set(name, current);
+    }
+
+    const inferred = [...inferredMap.values()].map((loan, index) => ({
+      id: `inferred-${index}-${loan.name}`,
+      name: loan.name,
+      originalAmount: 0,
+      outstandingAmount: null,
+      interestRate: null,
+      monthlyPayment: null,
+      startDate: null,
+      endDate: null,
+      principalPaid: loan.principalPaid,
+      interestPaid: loan.interestPaid,
+      source: "INFERRED" as const,
+    })).filter((loan) => !explicit.some((item) => item.name === loan.name));
+
+    return NextResponse.json([...explicit, ...inferred]);
   } catch {
     return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
   }
