@@ -1,16 +1,86 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f8fb;
-  --foreground: #111827;
+  --background: #f4f7fb;
+  --foreground: #172033;
+  --muted: #64748b;
+  --border: #e5eaf1;
+  --primary: #4f46e5;
+  --primary-dark: #3730a3;
+  --sidebar: #101827;
+  --card: #ffffff;
 }
 
 * { box-sizing: border-box; }
-html { direction: rtl; }
+html { direction: rtl; scroll-behavior: smooth; }
 body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { outline-color: var(--primary); }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; }
+
+.app-shell { min-height: 100vh; display: flex; }
+.app-main { min-width: 0; flex: 1; }
+.app-content { width: min(100%, 1440px); margin: 0 auto; padding: 32px 36px 56px; }
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: 264px;
+  height: 100vh;
+  flex: 0 0 264px;
+  background: linear-gradient(180deg, #101827 0%, #0d1421 100%);
+  color: #fff;
+  box-shadow: 8px 0 30px rgba(15, 23, 42, .08);
+}
+.sidebar-inner { height: 100%; display: flex; flex-direction: column; padding: 24px 16px 18px; }
+.brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 22px; }
+.brand-mark { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; background: linear-gradient(135deg, #6366f1, #4f46e5); box-shadow: 0 8px 20px rgba(79, 70, 229, .3); }
+.brand-name { display: block; font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
+.brand-subtitle { display: block; margin-top: 2px; color: #94a3b8; font-size: 11px; }
+.user-card { display: flex; align-items: center; gap: 10px; margin: 0 2px 22px; padding: 12px; border: 1px solid rgba(148, 163, 184, .13); border-radius: 15px; background: rgba(255,255,255,.045); }
+.avatar { width: 36px; height: 36px; flex: 0 0 36px; display: grid; place-items: center; border-radius: 11px; background: #312e81; color: #e0e7ff; font-weight: 800; }
+.user-label { color: #94a3b8; font-size: 11px; }
+.user-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 13px; font-weight: 700; }
+.nav-list { display: grid; gap: 5px; }
+.nav-item { position: relative; display: flex; align-items: center; gap: 12px; min-height: 45px; padding: 0 13px; border: 1px solid transparent; border-radius: 12px; color: #aeb9c9; font-size: 14px; font-weight: 600; transition: .18s ease; }
+.nav-item:hover { color: #fff; background: rgba(255,255,255,.065); }
+.nav-item.active { color: #fff; background: linear-gradient(90deg, rgba(79,70,229,.28), rgba(79,70,229,.12)); border-color: rgba(129,140,248,.16); box-shadow: inset 3px 0 0 #818cf8; }
+.nav-badge { margin-right: auto; padding: 2px 6px; border-radius: 999px; background: #312e81; color: #c7d2fe; font-size: 9px; font-weight: 800; }
+.sidebar-spacer { flex: 1; }
+.sidebar-tip { display: flex; gap: 9px; margin: 12px 2px; padding: 12px; border-radius: 14px; background: rgba(99,102,241,.10); color: #cbd5e1; }
+.tip-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 9px; background: rgba(99,102,241,.2); color: #a5b4fc; }
+.sidebar-tip strong { display: block; font-size: 11px; color: #e2e8f0; }
+.sidebar-tip p { margin: 3px 0 0; font-size: 10px; line-height: 1.55; color: #94a3b8; }
+.sidebar-footer { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 12px 10px 2px; border-top: 1px solid rgba(148,163,184,.12); }
+.sidebar-footer button { border: 0; background: transparent; color: #94a3b8; font-size: 13px; padding: 0; }
+.sidebar-footer button:hover { color: #fff; }
+
+.card-elevated { border: 1px solid var(--border); background: var(--card); border-radius: 18px; box-shadow: 0 8px 30px rgba(15,23,42,.045); }
+
+@media (max-width: 900px) {
+  .app-sidebar { position: sticky; top: 0; width: 100%; height: auto; flex: none; }
+  .app-shell { display: block; }
+  .sidebar-inner { height: auto; padding: 12px 14px; }
+  .brand { padding: 0 4px 10px; }
+  .user-card, .sidebar-tip, .sidebar-footer { display: none; }
+  .nav-list { display: flex; overflow-x: auto; gap: 5px; padding-bottom: 2px; scrollbar-width: none; }
+  .nav-list::-webkit-scrollbar { display: none; }
+  .nav-item { flex: 0 0 auto; min-height: 40px; padding: 0 12px; }
+  .nav-badge { display: none; }
+  .app-content { padding: 22px 16px 40px; }
+}
+
+@media (max-width: 560px) {
+  .app-content { padding: 18px 12px 32px; }
+  .brand-name { font-size: 16px; }
+  .brand-subtitle { display: none; }
+}
