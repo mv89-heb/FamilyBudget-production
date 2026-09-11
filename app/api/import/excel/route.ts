@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 2000;
@@ -25,8 +26,6 @@ function cleanJson(text: string) {
 }
 
 async function analyzeWithGemini(rows: unknown[][]) {
-  // Read the secret at request time. This avoids relying on a module-level env snapshot
-  // that may have been evaluated during the Next.js build rather than at runtime.
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) throw new Error("GEMINI_NOT_CONFIGURED");
 
@@ -57,9 +56,7 @@ async function analyzeWithGemini(rows: unknown[][]) {
       },
     );
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("GEMINI_TIMEOUT");
-    }
+    if (error instanceof Error && error.name === "AbortError") throw new Error("GEMINI_TIMEOUT");
     throw new Error("GEMINI_NETWORK_ERROR");
   } finally {
     clearTimeout(timeout);
