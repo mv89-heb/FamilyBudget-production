@@ -2,8 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-type Loan = { id:string; name:string; originalAmount:number; outstandingAmount:number|null; interestRate:number|null; monthlyPayment:number|null; startDate:string|null; endDate:string|null; principalPaid:number; interestPaid:number };
-const money=(v:number|null)=>v==null?"—":`${v.toLocaleString("he-IL",{maximumFractionDigits:0})} ₪`;
+type Loan = { id:string; name:string; originalAmount:number; outstandingAmount:number|null; interestRate:number|null; monthlyPayment:number|null; startDate:string|null; endDate:string|null; principalPaid:number; interestPaid:number; source:"MANUAL"|"INFERRED" };
+const money=(v:number|null)=>v==null?"לא הוגדר":`${v.toLocaleString("he-IL",{maximumFractionDigits:0})} ₪`;
 const progress=(loan:Loan)=>loan.originalAmount>0?Math.min(100,Math.max(0,((loan.originalAmount-(loan.outstandingAmount??loan.originalAmount))/loan.originalAmount)*100)):0;
 
 export default function Loans(){
@@ -19,20 +19,22 @@ export default function Loans(){
   const totalMonthly=loans.reduce((s,l)=>s+(l.monthlyPayment||0),0);
 
   return <main className="page-shell debt-page" dir="rtl">
-    <div className="page-header"><div><p className="eyebrow">Debt Dashboard · התחייבויות</p><h1>הלוואות</h1><p>מסך חובות נפרד מהתקציב השוטף — רק מה שצריך כדי להבין את מצב החוב ולקבל החלטה.</p></div></div>
+    <div className="page-header"><div><p className="eyebrow">Debt Dashboard · התחייבויות</p><h1>הלוואות</h1><p>מסך חובות נפרד מהתקציב השוטף — הנתונים הידועים מהמערכת מוצגים גם כאשר עדיין לא הוגדרה הלוואה ידנית.</p></div></div>
     {error&&<div className="error-banner">{error}</div>}
 
     <section className="debt-summary">
       <article><span>החזרי הלוואות בחודש</span><strong>{money(totalMonthly)}</strong></article>
-      <article><span>סך החוב שנותר</span><strong>{money(totalOutstanding)}</strong></article>
+      <article><span>סך החוב שנותר</span><strong>{loans.some(l=>l.outstandingAmount!=null)?money(totalOutstanding):"לא הוגדר"}</strong></article>
     </section>
 
     <section className="loan-grid">
-      {loans.length===0&&<div className="empty-state debt-empty"><strong>אין עדיין הלוואות פעילות</strong><span>הוסף הלוואה כדי להתחיל לעקוב אחר היתרה וההחזר החודשי.</span></div>}
-      {loans.map(l=>{const paid=progress(l);return <article className="loan-card" key={l.id}>
-        <div className="loan-card-head"><div><span className="loan-label">גוף מלווה</span><h2>{l.name}</h2></div><span className="loan-percent">{Math.round(paid)}% שולם</span></div>
+      {loans.length===0&&<div className="empty-state debt-empty"><strong>אין תנועות הלוואה מזוהות</strong><span>לא נמצאו כרגע הלוואות או התחייבויות מסווגות.</span></div>}
+      {loans.map(l=>{const paid=progress(l);const inferred=l.source==="INFERRED";return <article className="loan-card" key={l.id}>
+        <div className="loan-card-head"><div><span className="loan-label">גוף מלווה</span><h2>{l.name}</h2></div><span className="loan-percent">{inferred?"זוהה מתנועות":`${Math.round(paid)}% שולם`}</span></div>
         <div className="loan-main-grid"><div><small>החזר חודשי</small><strong>{money(l.monthlyPayment)}</strong></div><div><small>יתרה לסגירה</small><strong>{money(l.outstandingAmount)}</strong></div></div>
-        <div className="loan-progress"><div className="progress-heading"><span>התקדמות פירעון</span><b>{Math.round(paid)}%</b></div><div className="decision-progress safe"><div style={{width:`${paid}%`}}/></div><small>{money(Math.max(0,l.originalAmount-(l.outstandingAmount??l.originalAmount)))} מתוך {money(l.originalAmount)} שולמו</small></div>
+        <div className="loan-progress">
+          {inferred ? <small>המערכת זיהתה התחייבות לפי סיווגי תנועות. כדי לקבל יתרה, ריבית והחזר קבועים מדויקים, אפשר להשלים את פרטי ההלוואה באזור הניהול.</small> : <><div className="progress-heading"><span>התקדמות פירעון</span><b>{Math.round(paid)}%</b></div><div className="decision-progress safe"><div style={{width:`${paid}%`}}/></div><small>{money(Math.max(0,l.originalAmount-(l.outstandingAmount??l.originalAmount)))} מתוך {money(l.originalAmount)} שולמו</small></>}
+        </div>
       </article>})}
     </section>
 
