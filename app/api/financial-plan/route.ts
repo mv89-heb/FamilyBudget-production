@@ -18,7 +18,21 @@ const weekStart = (date = new Date()) => {
   d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
   return d;
 };
-const sum = (values: Array<number | string>) => values.reduce((total: number, value: number | string) => Number(total) + Number(value), 0);
+
+const toNumber = (value: unknown): number => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (value && typeof value === "object" && "toNumber" in value && typeof value.toNumber === "function") {
+    const parsed = Number(value.toNumber());
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const sum = (values: readonly unknown[]) => values.reduce((total, value) => total + toNumber(value), 0);
 const excludedExpenseKinds = ["TRANSFER", "CASH_WITHDRAWAL", "LOAN_PRINCIPAL", "LOAN_RECEIVED"] as const;
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 
@@ -56,18 +70,18 @@ export async function GET() {
     const leisureActualMonth = sum(expenseTransactions.filter(t => leisurePattern.test(t.category.name)).map(t => t.amount));
     const leisureActualWeek = sum(expenseTransactions.filter(t => new Date(t.transactionDate) >= currentWeek && leisurePattern.test(t.category.name)).map(t => t.amount));
     const sinkingMonthly = sum(funds.map(f => f.monthlyContribution));
-    const savings = Number(plan.monthlySavingsTarget);
+    const savings = toNumber(plan.monthlySavingsTarget);
     const configuredIncome = sum(incomes.map(i => i.monthlyAmount));
     const budgetIncome = netIncomeActual > 0 ? netIncomeActual : configuredIncome;
     const fixedCommitments = hardBudgetLimit;
     const availableVariable = Math.max(0, budgetIncome - fixedCommitments - sinkingMonthly - savings);
-    const monthlyLeisure = Number(plan.weeklyLeisureBudget) * 4.33;
+    const monthlyLeisure = toNumber(plan.weeklyLeisureBudget) * 4.33;
     const debtPayment = sum(loans.map(l => l.monthlyPayment || 0));
     const debtBurden = budgetIncome > 0 ? debtPayment / budgetIncome : 0;
     const essentialMonthly = fixedCommitments;
     const emergencyMin = essentialMonthly * 3;
     const emergencyMax = essentialMonthly * 6;
-    const emergencyProgress = Number(plan.emergencyFundAmount);
+    const emergencyProgress = toNumber(plan.emergencyFundAmount);
     const dataCoverage = netIncomeActual > 0 || actualExpenses > 0 ? "GOOD" : configuredIncome > 0 ? "PARTIAL" : "LOW";
     const monthElapsedDays = Math.max(1, Math.ceil((now.getTime() - month.getTime()) / 86400000));
     const daysInMonth = Math.round((nextMonth.getTime() - month.getTime()) / 86400000);
@@ -77,8 +91,8 @@ export async function GET() {
       ? "אין כרגע כסף פנוי אחרי חובה, חיסכון וקופות. לפני שמגדילים הוצאות משתנות כדאי לאזן את התוכנית."
       : debtBurden >= 0.4
         ? "נטל ההלוואות גבוה. שמור על הוצאות חובה וחיסכון בסיסי, והעדף צמצום חוב יקר לפני הגדלת הוצאות פנאי."
-        : leisureActualWeek > Number(plan.weeklyLeisureBudget) && Number(plan.weeklyLeisureBudget) > 0
-          ? `הוצאות הפנאי השבוע כבר מעל היעד ב-${Math.round(leisureActualWeek - Number(plan.weeklyLeisureBudget)).toLocaleString("he-IL")} ₪. כדאי לעצור כאן לשאר השבוע.`
+        : leisureActualWeek > toNumber(plan.weeklyLeisureBudget) && toNumber(plan.weeklyLeisureBudget) > 0
+          ? `הוצאות הפנאי השבוע כבר מעל היעד ב-${Math.round(leisureActualWeek - toNumber(plan.weeklyLeisureBudget)).toLocaleString("he-IL")} ₪. כדאי לעצור כאן לשאר השבוע.`
           : variableBudgetLimit > 0 && variableActual > variableBudgetLimit
             ? `ההוצאות המשתנות עברו את התקציב החודשי ב-${Math.round(variableActual - variableBudgetLimit).toLocaleString("he-IL")} ₪. כדאי לצמצם את ההוצאות המשתנות עד סוף החודש.`
             : `נשארו ${Math.round(availableVariable).toLocaleString("he-IL")} ₪ לתכנון ההוצאות המשתנות. חלק אותם בין צרכים משתנים, דלק ופנאי בלי לחרוג מהמסגרת.`;
@@ -104,7 +118,7 @@ export async function GET() {
         variableRemaining,
         uncategorizedActual,
         projectedVariable,
-        weeklyLeisure: Number(plan.weeklyLeisureBudget),
+        weeklyLeisure: toNumber(plan.weeklyLeisureBudget),
         monthlyLeisure,
         leisureActualMonth,
         leisureActualWeek,
