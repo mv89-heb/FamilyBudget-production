@@ -10,7 +10,7 @@ type Item = { href: string; label: string; icon: typeof BarChart3 };
 const items: Item[] = [
   { href: "/dashboard", label: "לוח בקרה", icon: BarChart3 },
   { href: "/plan", label: "תוכנית החודש", icon: CalendarDays },
-  { href: "/transactions", label: "תנועות", icon: CreditCard },
+  { href: "/transactions", label: "הכנסות והוצאות", icon: CreditCard },
   { href: "/import", label: "ייבוא Excel", icon: FileSpreadsheet },
   { href: "/budgets", label: "תקציבים", icon: Target },
   { href: "/loans", label: "הלוואות", icon: PiggyBank },
