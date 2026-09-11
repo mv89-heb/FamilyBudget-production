@@ -35,6 +35,15 @@ const toNumber = (value: unknown): number => {
 const sum = (values: readonly unknown[]): number => values.reduce<number>((total, value) => total + toNumber(value), 0);
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 
+function sectionForCategory(name: string): string {
+  if (/(דיור|משכנתא|ארנונה|שכירות|חשמל|מים|גז|ביטוח דירה)/i.test(name)) return "דיור";
+  if (/(מזון|סופר|מכולת|מסעד|קפה|פנאי|בילוי|קולנוע|אטרקציה|בידור)/i.test(name)) return "מחיה ופנאי";
+  if (/(תחבורה|דלק|רכב|מוסך|חניה|כביש)/i.test(name)) return "תחבורה";
+  if (/(ילד|גן|מעון|חינוך|בית ספר|קייטנה|תינוק)/i.test(name)) return "ילדים";
+  if (/(הלווא|חוב|אשראי)/i.test(name)) return "חובות";
+  return "אחר";
+}
+
 export async function GET() {
   try {
     const user = await requireUser();
@@ -102,12 +111,28 @@ export async function GET() {
             ? `ההוצאות המשתנות עברו את התקציב החודשי ב-${Math.round(variableActual - variableBudgetLimit).toLocaleString("he-IL")} ₪. כדאי לצמצם את ההוצאות המשתנות עד סוף החודש.`
             : `נשארו ${Math.round(availableVariable).toLocaleString("he-IL")} ₪ לתכנון ההוצאות המשתנות. חלק אותם בין צרכים משתנים, דלק ופנאי בלי לחרוג מהמסגרת.`;
 
+    const budgetCategories = budgets
+      .map(b => {
+        const actual = sum(expenseTransactions.filter(t => t.categoryId === b.categoryId).map(t => t.amount));
+        return {
+          categoryId: b.categoryId,
+          name: b.category.name,
+          class: b.class,
+          section: sectionForCategory(b.category.name),
+          limit: toNumber(b.limit),
+          actual,
+          remaining: Math.max(0, toNumber(b.limit) - actual),
+          percent: toNumber(b.limit) > 0 ? (actual / toNumber(b.limit)) * 100 : 0,
+        };
+      })
+      .sort((a, b) => a.section.localeCompare(b.section, "he") || b.actual - a.actual || a.name.localeCompare(b.name, "he"));
+
     return NextResponse.json({
       plan,
       householdSize: user.householdSize,
       incomes,
       funds,
-      hardBudgets: budgets.filter(b => b.class === "HARD"),
+      budgetCategories,
       summary: {
         netIncome: budgetIncome,
         configuredIncome,
