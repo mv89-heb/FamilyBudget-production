@@ -4,28 +4,18 @@ import pdfParse from "pdf-parse";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { sanitizeImportText, MAX_SANITIZED_IMPORT_CHARS } from "@/lib/import/privacy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 10 * 1024 * 1024;
-const MAX_TEXT_CHARS = 200_000;
+const MAX_TEXT_CHARS = MAX_SANITIZED_IMPORT_CHARS;
 const GEMINI_TIMEOUT_MS = 20_000;
 const GEMINI_MODELS = [process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "gemini-2.5-flash-lite"].filter((model, index, models) => model && models.indexOf(model) === index);
 const rowSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), amount: z.number().finite().positive().max(999999999), type: z.enum(["CHARGE", "REFUND"]), kind: z.enum(["PURCHASE", "INSTALLMENT", "REFUND", "FEE", "OTHER"]), merchant: z.string().trim().min(1).max(160), note: z.string().trim().max(500).nullable().optional(), installmentNumber: z.number().int().positive().nullable().optional(), installmentTotal: z.number().int().positive().nullable().optional(), categoryName: z.string().trim().min(1).max(60).optional(), paymentMethodName: z.string().trim().max(80).nullable().optional() });
 const responseSchema = z.object({ rows: z.array(rowSchema).max(5000) });
 type PdfRow = z.infer<typeof rowSchema>;
-
-function sanitizePdfText(input: string) {
-  let text = input.replace(/\u0000/g, " ");
-  text = text.replace(/\b(?:\d[ -]?){13,19}\b/g, "[CARD_REDACTED]");
-  text = text.replace(/(?:מספר\s*(?:כרטיס|חשבון)|כרטיס\s*אשראי|account\s*(?:number|no\.? )|card\s*(?:number|no\.?))\s*[:#-]?\s*[\d\s-]{6,}/gi, "[ACCOUNT_REDACTED]");
-  text = text.replace(/(?:cvv|cvc|קוד\s*אבטחה)\s*[:#-]?\s*\d{3,4}/gi, "[CODE_REDACTED]");
-  text = text.replace(/(?:ת\.ז\.?|תעודת\s*זהות|id\s*(?:number|no\.?))\s*[:#-]?\s*\d{5,9}/gi, "[ID_REDACTED]");
-  text = text.replace(/\b(?:\+?972[- .]?)?(?:0?5\d)[- .]?\d{3}[- .]?\d{4}\b/g, "[PHONE_REDACTED]");
-  text = text.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[EMAIL_REDACTED]");
-  return text.replace(/\n{3,}/g, "\n\n").slice(0, MAX_TEXT_CHARS).trim();
-}
 
 function fingerprint(row: PdfRow) {
   return createHash("sha256").update(JSON.stringify({
@@ -71,7 +61,7 @@ export async function POST(req: Request) {
     if (existing?.status === "PROCESSING") return NextResponse.json({ error: "הקובץ הזה כבר נמצא בעיבוד." }, { status: 409 });
     const job = await prisma.importJob.create({ data: { userId: user.id, fileName: "CREDIT_CARD_PDF", fileHash, status: "PROCESSING" } });
     try {
-      const parsed = await pdfParse(buffer); const sanitized = sanitizePdfText(parsed.text || ""); if (!sanitized) throw new Error("EMPTY_PDF_TEXT");
+      const parsed = await pdfParse(buffer); const sanitized = sanitizeImportText(parsed.text || ""); if (!sanitized) throw new Error("EMPTY_PDF_TEXT");
       const rows = await requestGemini(sanitized); const uniqueRows = Array.from(new Map(rows.map(row => [fingerprint(row), row])).values()); if (!uniqueRows.length) throw new Error("NO_VALID_ROWS");
       const fingerprints = uniqueRows.map(fingerprint); const existingRows = await prisma.creditCardTransaction.findMany({ where: { userId: user.id, fingerprint: { in: fingerprints } }, select: { id: true, fingerprint: true } }); const existingByFingerprint = new Map(existingRows.map(row => [row.fingerprint, row.id]));
       const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map(category => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category]));
