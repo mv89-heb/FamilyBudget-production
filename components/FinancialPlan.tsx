@@ -6,7 +6,7 @@ type Income = { id: string; name: string; type: "SALARY" | "BENEFIT" | "ADDITION
 type Fund = { id: string; name: string; targetAmount: number | string; currentAmount: number | string; monthlyContribution: number | string; dueDate: string | null; active: boolean };
 type BudgetCategory = { categoryId: string; name: string; class: "HARD" | "VARIABLE"; section: string; limit: number; actual: number; remaining: number; percent: number };
 type UnbudgetedCategory = { categoryId: string; name: string; actual: number };
-type Summary = { netIncome: number; netIncomeActual: number; fixedCommitments: number; hardActual: number; hardBudgetLimit: number; sinkingMonthly: number; savings: number; availableVariable: number; variableActual: number; variableBudgetLimit: number; variableRemaining: number; uncategorizedActual: number; weeklyLeisure: number; monthlyLeisure: number; leisureActualWeek: number; essentialMonthly: number; emergencyMin: number; emergencyMax: number; emergencyProgress: number; debtPayment: number; debtBurden: number; freeAfterLeisure: number; hasLeisureTarget: boolean; dataCoverage: "GOOD" | "PARTIAL" | "LOW"; recommendation: string };
+type Summary = { netIncome: number; netIncomeActual: number; actualExpenses: number; fixedCommitments: number; hardActual: number; hardBudgetLimit: number; sinkingMonthly: number; savings: number; availableVariable: number; variableActual: number; variableBudgetLimit: number; variableRemaining: number; uncategorizedActual: number; weeklyLeisure: number; monthlyLeisure: number; leisureActualWeek: number; essentialMonthly: number; emergencyMin: number; emergencyMax: number; emergencyProgress: number; debtPayment: number; debtBurden: number; freeAfterLeisure: number; hasLeisureTarget: boolean; dataCoverage: "GOOD" | "PARTIAL" | "LOW"; recommendation: string };
 type Data = { plan: { monthlySavingsTarget: number; weeklyLeisureBudget: number; emergencyFundAmount: number; emergencyTargetMonths: number }; householdSize: number; incomes: Income[]; funds: Fund[]; budgetCategories: BudgetCategory[]; unbudgetedCategories: UnbudgetedCategory[]; summary: Summary };
 
 const money = (v: number | string) => `${Number(v).toLocaleString("he-IL", { maximumFractionDigits: 0 })} ₪`;
@@ -64,7 +64,6 @@ export default function FinancialPlan() {
   const grouped = data.budgetCategories.reduce<Record<string, BudgetCategory[]>>((acc, item) => { (acc[item.section] ||= []).push(item); return acc; }, {});
   const hardPercent = s.hardBudgetLimit > 0 ? Math.min(100, (s.hardActual / s.hardBudgetLimit) * 100) : 0;
   const variablePercent = s.variableBudgetLimit > 0 ? Math.min(100, (s.variableActual / s.variableBudgetLimit) * 100) : 0;
-  const totalActualExpenses = s.fixedCommitments + s.variableActual + s.uncategorizedActual;
   const coverageLabel = s.dataCoverage === "GOOD" ? "מבוסס על נתוני בפועל" : s.dataCoverage === "PARTIAL" ? "מבוסס חלקית על נתוני המערכת" : "חסר מידע מספיק";
 
   return <main className="page-shell decision-page" dir="rtl">
@@ -73,7 +72,7 @@ export default function FinancialPlan() {
 
     <section className="decision-metrics">
       <article className="decision-metric"><span>הכנסות בפועל</span><strong>{money(s.netIncomeActual || s.netIncome)}</strong><small>{s.netIncomeActual > 0 ? "נכנסו בפועל החודש" : "לפי ההכנסה שהוגדרה"}</small></article>
-      <article className="decision-metric"><span>הוצאות בפועל</span><strong>{money(totalActualExpenses)}</strong><small>רק תנועות כספיות בפועל</small></article>
+      <article className="decision-metric"><span>הוצאות בפועל</span><strong>{money(s.actualExpenses)}</strong><small>מקור האמת: תנועות כספיות בלבד</small></article>
       <article className="decision-metric decision-metric-primary"><span>יתרה פנויה לתכנון</span><strong>{money(s.availableVariable)}</strong><small>אחרי הוצאות, חוב, חיסכון וקופות</small></article>
     </section>
 
