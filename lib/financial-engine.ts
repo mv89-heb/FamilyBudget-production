@@ -14,39 +14,35 @@ export const FINANCING_KINDS = ["LOAN_RECEIVED", "LOAN_PRINCIPAL", "TRANSFER", "
 export function isTransfer(transaction: FinancialTransaction): boolean {
   return transaction.kind === "TRANSFER";
 }
-
 export function isCashWithdrawal(transaction: FinancialTransaction): boolean {
   return transaction.kind === "CASH_WITHDRAWAL";
 }
-
 export function isLoanPrincipal(transaction: FinancialTransaction): boolean {
   return transaction.kind === "LOAN_PRINCIPAL";
 }
-
 export function isLoanInterest(transaction: FinancialTransaction): boolean {
   return transaction.kind === "LOAN_INTEREST";
 }
-
 export function isLoanReceived(transaction: FinancialTransaction): boolean {
   return transaction.kind === "LOAN_RECEIVED";
 }
-
 export function isRefund(transaction: FinancialTransaction): boolean {
   return transaction.kind === "REFUND";
 }
-
 export function isOperatingExpense(transaction: FinancialTransaction): boolean {
   return transaction.type === "EXPENSE" && (EXPENSE_KINDS as readonly string[]).includes(transaction.kind);
 }
-
 export function isOperatingIncome(transaction: FinancialTransaction): boolean {
-  return transaction.type === "INCOME" && transaction.kind === "STANDARD";
+  return transaction.type === "INCOME" && (INCOME_KINDS as readonly string[]).includes(transaction.kind);
 }
-
 export function isFinancingActivity(transaction: FinancialTransaction): boolean {
   return (FINANCING_KINDS as readonly string[]).includes(transaction.kind);
 }
 
+/**
+ * Refunds are stored as their own transaction kind and reduce operating expense.
+ * A refund is never treated as ordinary household income.
+ */
 export function signedOperatingAmount(transaction: FinancialTransaction): number {
   if (isRefund(transaction)) return -Math.abs(transaction.amount);
   if (isOperatingExpense(transaction)) return Math.abs(transaction.amount);
@@ -70,11 +66,7 @@ export function calculateFinancingActivity(transactions: readonly FinancialTrans
 }
 
 export function getIsraelMonth(date = new Date()): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(date);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit" }).formatToParts(date);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   if (!year || !month) throw new Error("Unable to determine Israel month");
