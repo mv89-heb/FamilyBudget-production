@@ -23,20 +23,16 @@ async function extractPdfTextLocally(file: File, onProgress: (message: string) =
       const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 2 });
       const canvas = document.createElement("canvas");
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
+      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
       const context = canvas.getContext("2d", { willReadFrequently: true });
       if (!context) throw new Error("הדפדפן לא אפשר יצירת משטח OCR");
       await page.render({ canvasContext: context, viewport }).promise;
       const result = await worker.recognize(canvas);
       chunks.push(`--- PAGE ${pageNumber} ---\n${result.data.text}`);
-      canvas.width = 1; canvas.height = 1;
-      page.cleanup();
+      canvas.width = 1; canvas.height = 1; page.cleanup();
     }
     return chunks.join("\n\n");
-  } finally {
-    await worker.terminate();
-  }
+  } finally { await worker.terminate(); }
 }
 
 export default function CreditCardPdfImportPage() {
@@ -50,8 +46,7 @@ export default function CreditCardPdfImportPage() {
       const response = await fetch("/api/import/credit-card-pdf", { method: "POST", body: fd, headers: { Accept: "application/json" }, cache: "no-store" });
       const data = await readResponse(response);
       if (response.ok) { setResult(data as unknown as Result); return; }
-      if (response.status !== 422 || typeof data.error !== "string" || !data.error.includes("סרוקה")) throw new Error(typeof data.error === "string" ? data.error : "הייבוא נכשל");
-
+      if (response.status !== 422 || typeof data.error !== "string" || !data.error.includes("סרוק")) throw new Error(typeof data.error === "string" ? data.error : "הייבוא נכשל");
       setProgress("ה-PDF הוא סריקה. מבצע OCR מקומי בדפדפן — הקובץ לא נשלח לשרת לצורך OCR.");
       const ocrText = await extractPdfTextLocally(file, setProgress);
       if (!ocrText.trim()) throw new Error("לא הצלחנו לזהות טקסט מהסריקה.");
