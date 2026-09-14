@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const param = new URL(req.url).searchParams.get("month");
     const month = monthSchema.parse(param || getIsraelMonth());
     const { start, end } = monthRange(month);
-    const [budgets, expenses] = await Promise.all([
+    const [budgets, expenses, creditCardExpenses] = await Promise.all([
       prisma.budget.findMany({ where: { userId: user.id, month: start }, include: { category: true } }),
       prisma.transaction.findMany({
         where: {
@@ -23,20 +23,29 @@ export async function GET(req: Request) {
         },
         select: { categoryId: true, type: true, kind: true, amount: true },
       }),
+      prisma.creditCardTransaction.findMany({
+        where: {
+          userId: user.id,
+          purchaseDate: { gte: start, lt: end },
+          type: { in: ["CHARGE", "REFUND"] },
+        },
+        select: { categoryId: true, type: true, amount: true },
+      }),
     ]);
 
     const spent = new Map<string, number>();
     for (const transaction of expenses) {
       const amount = Number(transaction.amount);
       const current = spent.get(transaction.categoryId) || 0;
-      const normalized = {
-        type: transaction.type,
-        kind: transaction.kind,
-        amount,
-        categoryId: transaction.categoryId,
-      };
+      const normalized = { type: transaction.type, kind: transaction.kind, amount, categoryId: transaction.categoryId };
       if (isOperatingExpense(normalized)) spent.set(transaction.categoryId, current + amount);
       else if (transaction.type === "INCOME" && transaction.kind === "REFUND") spent.set(transaction.categoryId, current - amount);
+    }
+    for (const transaction of creditCardExpenses) {
+      if (!transaction.categoryId) continue;
+      const amount = Number(transaction.amount);
+      const current = spent.get(transaction.categoryId) || 0;
+      spent.set(transaction.categoryId, current + (transaction.type === "REFUND" ? -amount : amount));
     }
 
     return NextResponse.json(budgets.map((budget) => {
