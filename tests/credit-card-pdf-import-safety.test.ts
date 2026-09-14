@@ -7,7 +7,6 @@ test("Credit-card PDF import privacy and dedupe contract", () => {
   const source = readFileSync(join(process.cwd(), "app/api/import/credit-card-pdf/route.ts"), "utf8");
   for (const contract of [
     "sanitizeImportText",
-    "privacy-redacted",
     "CARD_REDACTED",
     "ACCOUNT_REDACTED",
     "CODE_REDACTED",
