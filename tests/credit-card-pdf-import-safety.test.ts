@@ -6,7 +6,7 @@ import { join } from "node:path";
 test("Credit-card PDF import privacy and dedupe contract", () => {
   const source = readFileSync(join(process.cwd(), "app/api/import/credit-card-pdf/route.ts"), "utf8");
   for (const contract of [
-    "sanitizePdfText",
+    "sanitizeImportText",
     "privacy-redacted",
     "CARD_REDACTED",
     "ACCOUNT_REDACTED",
@@ -14,15 +14,16 @@ test("Credit-card PDF import privacy and dedupe contract", () => {
     "ID_REDACTED",
     "PHONE_REDACTED",
     "EMAIL_REDACTED",
-    "privacy: \"sanitized-before-gemini\"",
     "const parsed = await pdfParse(buffer)",
-    "const sanitized = sanitizePdfText(parsed.text || \"\")",
-    "requestGemini(sanitized)",
-    "source-independent",
+    "const text = sanitizeImportText(parsed.text || \"\")",
+    "requestGemini(page)",
+    "fingerprint(row)",
+    "fileHash",
+    "creditCardIdentityMatches",
     "installmentNumber",
     "installmentTotal",
-  ]) assert.ok(source.includes(contract), `missing PDF privacy contract: ${contract}`);
+  ]) assert.ok(source.includes(contract), `missing PDF privacy/dedupe contract: ${contract}`);
 
-  assert.ok(!source.includes("source: \"CREDIT_CARD_PDF\""), "PDF fingerprint must not be source-specific");
   assert.ok(!source.includes("requestGemini(buffer"), "raw PDF buffer must never be sent to Gemini");
+  assert.ok(!source.includes("requestGemini(parsed.text"), "unsanitized PDF text must never be sent to Gemini");
 });
