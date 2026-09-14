@@ -39,7 +39,7 @@ export default function Loans(){
     {error&&<div className="error-banner">{error}</div>}
 
     <section className="debt-summary">
-      <article><span>החזרי התחייבויות בחודש</span><strong>{money(totalMonthly)}</strong></article>
+      <article><span>תשלומי חוב בחודש</span><strong>{money(totalMonthly)}</strong></article>
       <article><span>סך החוב שנותר</span><strong>{loans.some(l=>l.outstandingAmount!=null)?money(totalOutstanding):"לא הוגדר"}</strong></article>
       <article><span>כסף שכבר נצבר בקופות</span><strong>{money(totalFunds)}</strong></article>
     </section>
@@ -50,8 +50,8 @@ export default function Loans(){
         {loans.length===0&&<div className="empty-state debt-empty"><strong>אין כרגע הלוואות שהוגדרו</strong><span>אפשר להוסיף התחייבות ידנית כדי לקבל מעקב מדויק.</span></div>}
         {loans.map(l=>{const paid=progress(l);const inferred=l.source==="INFERRED";return <article className="loan-card" key={l.id}>
           <div className="loan-card-head"><div><span className="loan-label">גוף מלווה</span><h2>{l.name}</h2></div><span className="loan-percent">{inferred?"זוהה מתנועות":`${Math.round(paid)}% שולם`}</span></div>
-          <div className="loan-main-grid"><div><small>החזר חודשי</small><strong>{money(l.monthlyPayment)}</strong></div><div><small>יתרה לסגירה</small><strong>{money(l.outstandingAmount)}</strong></div></div>
-          <div className="loan-progress">{inferred?<small>המערכת זיהתה התחייבות לפי סיווגי תנועות. ניתן להשלים פרטים מדויקים באזור הניהול.</small>:<><div className="progress-heading"><span>התקדמות פירעון</span><b>{Math.round(paid)}%</b></div><div className="decision-progress safe"><div style={{width:`${paid}%`}}/></div><small>{money(Math.max(0,l.originalAmount-(l.outstandingAmount??l.originalAmount)))} מתוך {money(l.originalAmount)} שולמו</small></>}</div>
+          <div className="loan-main-grid"><div><small>{inferred?"תשלום חוב שנרשם החודש":"תשלום חודשי"}</small><strong>{money(l.monthlyPayment)}</strong></div><div><small>יתרה לסגירה</small><strong>{money(l.outstandingAmount)}</strong></div></div>
+          <div className="loan-progress">{inferred?<><small>המערכת זיהתה תשלומי חוב לפי התנועות. הסכום המוצג הוא התשלומים שנרשמו החודש, ולא פירוט אוטומטי של קרן וריבית.</small></>:<><div className="progress-heading"><span>התקדמות החזר החוב</span><b>{Math.round(paid)}%</b></div><div className="decision-progress safe"><div style={{width:`${paid}%`}}/></div><small>{money(Math.max(0,l.originalAmount-(l.outstandingAmount??l.originalAmount)))} מתוך {money(l.originalAmount)} כבר שולמו</small></>}</div>
         </article>})}
       </div>
     </section>
@@ -63,7 +63,7 @@ export default function Loans(){
 
     <details className="decision-card loan-settings">
       <summary><div><h2>ניהול התחייבויות</h2><p>הוספת הלוואה ופרטים שאינם נחוצים ביום-יום.</p></div><span>פתיחה</span></summary>
-      <div className="settings-body"><form className="form-grid" onSubmit={add}><label>גוף מלווה<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required placeholder="משכנתא / בנק / חברת אשראי"/></label><label>סכום מקורי<input type="number" min="1" value={form.originalAmount} onChange={e=>setForm({...form,originalAmount:e.target.value})} required/></label><label>יתרה נוכחית<input type="number" min="0" value={form.outstandingAmount} onChange={e=>setForm({...form,outstandingAmount:e.target.value})}/></label><label>ריבית %<input type="number" min="0" step="0.01" value={form.interestRate} onChange={e=>setForm({...form,interestRate:e.target.value})}/></label><label>החזר חודשי<input type="number" min="0" value={form.monthlyPayment} onChange={e=>setForm({...form,monthlyPayment:e.target.value})}/></label><label>התחלה<input type="date" value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})}/></label><label>סיום<input type="date" value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})}/></label><button className="primary-button"><Plus size={16}/> הוסף הלוואה</button></form><Link href="/plan" className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-indigo-600">ניהול יעדי החיסכון והקופות <ArrowLeft size={14}/></Link></div>
+      <div className="settings-body"><form className="form-grid" onSubmit={add}><label>גוף מלווה<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required placeholder="משכנתא / בנק / חברת אשראי"/></label><label>סכום מקורי<input type="number" min="1" value={form.originalAmount} onChange={e=>setForm({...form,originalAmount:e.target.value})} required/></label><label>יתרה נוכחית<input type="number" min="0" value={form.outstandingAmount} onChange={e=>setForm({...form,outstandingAmount:e.target.value})}/></label><label>ריבית %<input type="number" min="0" step="0.01" value={form.interestRate} onChange={e=>setForm({...form,interestRate:e.target.value})}/></label><label>תשלום חודשי<input type="number" min="0" value={form.monthlyPayment} onChange={e=>setForm({...form,monthlyPayment:e.target.value})}/></label><label>התחלה<input type="date" value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})}/></label><label>סיום<input type="date" value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})}/></label><button className="primary-button"><Plus size={16}/> הוסף הלוואה</button></form><Link href="/plan" className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-indigo-600">ניהול יעדי החיסכון והקופות <ArrowLeft size={14}/></Link></div>
     </details>
   </main>
 }
