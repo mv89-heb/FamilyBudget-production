@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { monthSchema } from "@/lib/validation";
 import {
+  calculateCashFlowBalance,
   calculateFinancingActivity,
+  calculateFinancingCashFlow,
   calculateNetExpense,
   calculateOperatingIncome,
   getIsraelMonth,
@@ -79,7 +81,9 @@ export async function GET(req: Request) {
     }));
     const income = calculateOperatingIncome(normalized);
     const expense = calculateNetExpense(normalized);
-    const financing = calculateFinancingActivity(normalized);
+    const financingActivity = calculateFinancingActivity(normalized);
+    const financingCashFlow = calculateFinancingCashFlow(normalized);
+    const cashFlowBalance = calculateCashFlowBalance(normalized);
     const byCategory = categoryRows
       .map((row) => ({ name: row.name || "אחר", amount: Number(row.amount || 0) }))
       .filter((row) => row.amount !== 0)
@@ -89,8 +93,10 @@ export async function GET(req: Request) {
       month,
       income,
       expense,
-      balance: income - expense,
-      financingActivity: financing,
+      balance: cashFlowBalance,
+      cashFlowBalance,
+      financingActivity,
+      financingCashFlow,
       byCategory,
       recent: rows.map((row) => ({
         id: row.id,
