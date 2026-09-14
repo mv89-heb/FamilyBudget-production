@@ -1,0 +1,45 @@
+const CATEGORY_TRANSLATIONS: Record<string, string> = {
+  food: "מזון",
+  groceries: "מזון וקניות לבית",
+  supermarket: "מזון וקניות לבית",
+  "super market": "מזון וקניות לבית",
+  restaurants: "מסעדות",
+  restaurant: "מסעדות",
+  dining: "מסעדות",
+  "food & dining": "מסעדות",
+  transportation: "תחבורה",
+  transport: "תחבורה",
+  fuel: "דלק",
+  gas: "דלק",
+  shopping: "קניות",
+  clothing: "ביגוד",
+  health: "בריאות",
+  medical: "בריאות",
+  pharmacy: "בריאות",
+  housing: "דיור",
+  rent: "שכר דירה",
+  utilities: "חשבונות וחשמל",
+  electricity: "חשמל",
+  bills: "חשבונות",
+  insurance: "ביטוחים",
+  education: "חינוך",
+  entertainment: "בילויים",
+  subscriptions: "מנויים",
+  travel: "נסיעות וחופשות",
+  vacation: "נסיעות וחופשות",
+  children: "ילדים",
+  family: "משפחה",
+  gifts: "מתנות",
+  personal: "אישי",
+  salary: "משכורת",
+  income: "הכנסות",
+  fees: "עמלות",
+  fee: "עמלה",
+  other: "אחר",
+};
+
+export function normalizeCategoryName(name: string | null | undefined) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return "אחר";
+  return CATEGORY_TRANSLATIONS[trimmed.toLocaleLowerCase("en-US")] || trimmed;
+}
