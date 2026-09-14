@@ -1,5 +1,5 @@
-import IncomeExpenses from "@/components/IncomeExpenses";
+import { redirect } from "next/navigation";
 
-export default function IncomeExpensesPage() {
-  return <IncomeExpenses />;
+export default function IncomeExpensesLegacyPage() {
+  redirect("/plan");
 }
