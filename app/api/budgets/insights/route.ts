@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { classifyTransactionPresentation } from "@/lib/category-classifier";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,8 +85,10 @@ async function askGemini(payload: unknown) {
           "אין להמליץ על תקציב רק באמצעות ממוצע. יש לשלב: מספר נפשות, הוצאה לנפש, מגמה של מספר חודשים, עונתיות, הוצאות חוזרות מול חד-פעמיות, קצב ההוצאה בחודש הנוכחי, תקציבים קיימים, והקשר מאקרו-כלכלי עדכני שסופק.",
           "השתמש במדד המחירים לצרכן ובריבית רק כהקשר להתאמת כוח הקנייה והוצאות רגישות לריבית; אל תמציא נתונים כלכליים.",
           "אם היסטוריית הקטגוריה קצרה או חריגה, אל תציג ממוצע כאמת. השתמש בטווח שמרני והסבר את אי-הוודאות.",
-          "חשב יעד תקציבי חודשי לכל קטגוריה רלוונטית. לתקופה יומית/שבועית הצג קצב צריכה, אך suggestedBudgets נשארים גבולות חודשיים.",
-          "אל תכלול העברות, משיכות מזומן, קבלת הלוואות או החזר קרן כהוצאה. ריבית הלוואה היא הוצאה. החזר/זיכוי מקזז הוצאה.",
+          "חשב יעד תקציבי חודשי לכל קטגוריית צריכה רלוונטית. לתקופה יומית/שבועית הצג קצב צריכה, אך suggestedBudgets נשארים גבולות חודשיים.",
+          "אל תכלול העברות, משיכות מזומן, קבלת הלוואות או החזר קרן כהוצאה צרכנית. ריבית הלוואה היא הוצאה. החזר/זיכוי מקזז הוצאה.",
+          "חיובי כרטיס אשראי הם תנועת תזרים/סילוק חיוב בלבד. פירוט עסקאות האשראי נשמר בנפרד ואסור לסכום אותו עם חיוב הכרטיס.",
+          "אין להציע תקציב לקטגוריה שמייצגת חיוב כרטיס אשראי, חיסכון, פיקדון או חיסכון פנסיוני. אלה אינם קטגוריות צריכה.",
           "Return JSON only in this exact shape:",
           '{"summary":"...","insights":["..."],"recommendations":["..."],"suggestedBudgets":[{"categoryId":"...","categoryName":"...","amount":0,"reason":"..."}]}',
           JSON.stringify(payload),
@@ -123,7 +126,7 @@ export async function POST(req: Request) {
           { type: "EXPENSE", kind: { in: ["STANDARD", "LOAN_INTEREST"] } },
           { type: "INCOME", kind: "REFUND" },
         ] },
-        select: { amount: true, transactionDate: true, categoryId: true, kind: true, type: true, category: { select: { name: true } } },
+        select: { amount: true, transactionDate: true, categoryId: true, kind: true, type: true, category: { select: { name: true } }, note: true },
         orderBy: { transactionDate: "asc" }, take: 10000,
       }),
       prisma.budget.findMany({ where: { userId: user.id, month: targetStart }, select: { categoryId: true, limit: true } }),
@@ -135,6 +138,8 @@ export async function POST(req: Request) {
     const categoryMap = new Map<string, CategoryStats>();
     for (const category of categories) categoryMap.set(category.id, { categoryId: category.id, categoryName: category.name, months: {}, total: 0 });
     for (const transaction of transactions) {
+      const view = classifyTransactionPresentation(transaction.category?.name ?? null, transaction.note);
+      if (view.isCreditCardPayment || view.isSavings || transaction.kind === "LOAN_PRINCIPAL" || view.isDebt) continue;
       const category = categoryMap.get(transaction.categoryId); if (!category) continue;
       const date = transaction.transactionDate;
       const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -179,7 +184,14 @@ export async function POST(req: Request) {
     const ai = await askGemini(payload);
     const result = ai || fallback;
     const allowedIds = new Set(categories.map((category) => category.id));
-    const suggestions = result.suggestedBudgets.filter((item) => allowedIds.has(item.categoryId) && item.amount >= 0).map((item) => ({ ...item, amount: roundAmount(item.amount) }));
+    const excludedIds = new Set(
+      categories
+        .filter((category) => /^(אחר|חיובי כרטיסי אשראי|חיסכון ופקדונות|חיסכון פנסיוני|תשלומי חוב|חובות והלוואות|משכנתא)$/i.test(category.name.trim()))
+        .map((category) => category.id)
+    );
+    const suggestions = result.suggestedBudgets
+      .filter((item) => allowedIds.has(item.categoryId) && !excludedIds.has(item.categoryId) && item.amount >= 0)
+      .map((item) => ({ ...item, amount: roundAmount(item.amount) }));
 
     return NextResponse.json({
       period: input.period, month: targetMonth, source: ai ? "gemini" : "statistical",
