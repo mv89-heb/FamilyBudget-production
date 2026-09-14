@@ -13,6 +13,9 @@ test("Excel import safety contract", () => {
     "legacyKey",
     "legacyTransactions",
     "legacyMatches",
+    "reimportKey",
+    "reimportMatches",
+    "identityCandidates.length === 1",
     "fingerprint: null",
   ]) assert.ok(source.includes(contract));
 });
