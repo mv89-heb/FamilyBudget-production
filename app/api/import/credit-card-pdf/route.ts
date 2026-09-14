@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
+// @ts-expect-error pdf-parse v1 has no bundled TypeScript declaration.
 import pdfParse from "pdf-parse";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
