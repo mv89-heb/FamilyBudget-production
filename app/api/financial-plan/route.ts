@@ -21,7 +21,6 @@ function sectionForCategory(name: string): string {
   if (/(הלווא|חוב|אשראי)/i.test(name)) return "חובות";
   return "אחר";
 }
-function isAutomaticHardExpense(categoryName: string): boolean { return hardExpensePattern.test(categoryName); }
 
 export async function GET() {
   try {
@@ -44,49 +43,50 @@ export async function GET() {
 
     const normalized = transactions.map(t => ({ type: t.type, kind: t.kind, amount: toNumber(t.amount), transactionDate: t.transactionDate, categoryId: t.categoryId, categoryName: t.category?.name ?? null })) satisfies FinancialTransaction[];
     const receivedIncome = calculateOperatingIncome(normalized);
-    const refunds = sum(normalized.filter(t => t.kind === "REFUND").map(t => Math.abs(t.amount)));
-    const grossExpenses = sum(normalized.filter(t => t.type === "EXPENSE" && ["STANDARD", "LOAN_INTEREST"].includes(t.kind)).map(t => Math.abs(t.amount)));
-    const actualExpenses = Math.max(0, calculateNetExpense(normalized));
     const configuredIncome = sum(incomes.map(i => i.monthlyAmount));
+    const projectedIncome = receivedIncome > 0 ? receivedIncome : configuredIncome;
+    const actualExpenses = Math.max(0, calculateNetExpense(normalized));
     const debtPayment = calculateDebtPayments(normalized);
-    const projectedIncome = receivedIncome > 0 ? Math.max(receivedIncome, configuredIncome) : configuredIncome;
+    const debtPrincipal = sum(normalized.filter(t => t.kind === "LOAN_PRINCIPAL").map(t => Math.abs(t.amount)));
     const expenseTransactions = normalized.filter(t => t.type === "EXPENSE" && t.kind === "STANDARD");
 
-    const hardCategoryIds = new Set(budgets.filter(b => b.class === "HARD").map(b => b.categoryId));
-    const variableCategoryIds = new Set(budgets.filter(b => b.class === "VARIABLE").map(b => b.categoryId));
+    const hardBudgetIds = new Set(budgets.filter(b => b.class === "HARD").map(b => b.categoryId));
+    const variableBudgetIds = new Set(budgets.filter(b => b.class === "VARIABLE").map(b => b.categoryId));
     const budgetCategoryIds = new Set(budgets.map(b => b.categoryId));
     const hardBudgetLimit = sum(budgets.filter(b => b.class === "HARD").map(b => b.limit));
     const variableBudgetLimit = sum(budgets.filter(b => b.class === "VARIABLE").map(b => b.limit));
-    const hardActual = sum(expenseTransactions.filter(t => hardCategoryIds.has(t.categoryId ?? "") || (!variableCategoryIds.has(t.categoryId ?? "") && isAutomaticHardExpense(t.categoryName ?? ""))).map(t => t.amount));
-    const variableActual = sum(expenseTransactions.filter(t => variableCategoryIds.has(t.categoryId ?? "") && !hardCategoryIds.has(t.categoryId ?? "")).map(t => t.amount));
+    const hardActual = sum(expenseTransactions.filter(t => hardBudgetIds.has(t.categoryId ?? "")).map(t => t.amount));
+    const variableActual = sum(expenseTransactions.filter(t => variableBudgetIds.has(t.categoryId ?? "") && !hardBudgetIds.has(t.categoryId ?? "")).map(t => t.amount));
     const unbudgetedActual = sum(expenseTransactions.filter(t => !budgetCategoryIds.has(t.categoryId ?? "")).map(t => t.amount));
-    const leisureActualWeek = sum(expenseTransactions.filter(t => t.transactionDate >= currentWeek && leisurePattern.test(t.categoryName ?? "")).map(t => t.amount));
+    const leisureActualWeek = sum(expenseTransactions.filter(t => t.transactionDate && t.transactionDate >= currentWeek && leisurePattern.test(t.categoryName ?? "")).map(t => t.amount));
     const sinkingMonthly = sum(funds.map(f => f.monthlyContribution));
     const savings = toNumber(plan.monthlySavingsTarget);
-    const availableVariable = projectedIncome - actualExpenses - debtPayment - sinkingMonthly - savings;
+
+    // Interest is already part of actualExpenses. Only principal is subtracted here as a financing outflow.
+    const availableVariable = projectedIncome - actualExpenses - debtPrincipal - sinkingMonthly - savings;
     const monthlyLeisure = toNumber(plan.weeklyLeisureBudget) * 4.33;
     const debtBurden = projectedIncome > 0 ? debtPayment / projectedIncome : 0;
-    const essentialMonthly = hardActual > 0 ? hardActual : hardBudgetLimit;
+    const elapsedMs = Math.max(86400000, now.getTime() - month.getTime());
+    const monthElapsedDays = Math.max(1, Math.ceil(elapsedMs / 86400000));
+    const daysInMonth = Math.max(1, Math.round((nextMonth.getTime() - month.getTime()) / 86400000));
+    const projectedHard = hardActual > 0 ? (hardActual / monthElapsedDays) * daysInMonth : hardBudgetLimit;
+    const essentialMonthly = hardBudgetLimit > 0 ? Math.max(hardBudgetLimit, hardActual) : projectedHard;
     const emergencyMin = essentialMonthly * 3;
     const emergencyMax = essentialMonthly * 6;
     const emergencyProgress = toNumber(plan.emergencyFundAmount);
     const dataCoverage = receivedIncome > 0 || actualExpenses > 0 ? "GOOD" : configuredIncome > 0 ? "PARTIAL" : "LOW";
-    const elapsedMs = Math.max(86400000, now.getTime() - month.getTime());
-    const monthElapsedDays = Math.max(1, Math.ceil(elapsedMs / 86400000));
-    const daysInMonth = Math.max(1, Math.round((nextMonth.getTime() - month.getTime()) / 86400000));
-    const projectedVariable = variableActual > 0 ? (variableActual / monthElapsedDays) * daysInMonth : 0;
     const variableRemaining = variableBudgetLimit - variableActual;
     const hasLeisureTarget = toNumber(plan.weeklyLeisureBudget) > 0;
 
     const recommendation = availableVariable <= 0
-      ? "אין כרגע כסף פנוי אחרי הוצאות שבוצעו, החזרי חוב, חיסכון וקופות. לפני שמגדילים הוצאות כדאי לאזן את התוכנית."
+      ? "אין כרגע כסף פנוי אחרי ההוצאות, החזר הקרן, החיסכון והקופות. לפני שמגדילים הוצאות כדאי לאזן את התוכנית."
       : debtBurden >= 0.4
         ? "נטל ההלוואות גבוה. שמור על הוצאות חובה וחיסכון בסיסי, והעדף צמצום חוב יקר לפני הגדלת הוצאות פנאי."
         : hasLeisureTarget && leisureActualWeek > toNumber(plan.weeklyLeisureBudget)
           ? `הוצאות הפנאי השבוע כבר מעל היעד ב-${Math.round(leisureActualWeek - toNumber(plan.weeklyLeisureBudget)).toLocaleString("he-IL")} ₪. כדאי לעצור כאן לשאר השבוע.`
           : variableBudgetLimit > 0 && variableActual > variableBudgetLimit
             ? `ההוצאות המשתנות עברו את התקציב החודשי ב-${Math.round(variableActual - variableBudgetLimit).toLocaleString("he-IL")} ₪. כדאי לצמצם את ההוצאות המשתנות עד סוף החודש.`
-            : `נשארו ${Math.round(Math.max(0, availableVariable)).toLocaleString("he-IL")} ₪ בפועל אחרי ההוצאות, החזרי החוב, החיסכון והקופות.`;
+            : `נשארו ${Math.round(availableVariable).toLocaleString("he-IL")} ₪ בפועל אחרי ההוצאות, החזר הקרן, החיסכון והקופות.`;
 
     const budgetCategoriesMap = new Map<string, { categoryId: string; name: string; class: "HARD" | "VARIABLE"; section: string; limit: number; actual: number; remaining: number; percent: number }>();
     for (const budget of budgets) {
@@ -104,17 +104,15 @@ export async function GET() {
     }
     const unbudgetedCategories = Array.from(unbudgetedByCategory.values()).sort((a, b) => b.actual - a.actual || a.name.localeCompare(b.name, "he"));
 
-    return NextResponse.json({
-      plan, householdSize: user.householdSize, incomes, funds, budgetCategories, unbudgetedCategories,
-      summary: {
-        plannedIncome: configuredIncome, receivedIncome, projectedIncome, netIncome: projectedIncome, configuredIncome, netIncomeActual: receivedIncome,
-        grossExpenses, refunds, actualExpenses, fixedCommitments: hardActual, hardActual, hardBudgetLimit, sinkingMonthly, savings,
-        availableVariable: Math.max(0, availableVariable), actualAvailable: availableVariable, variableActual, variableBudgetLimit, variableRemaining,
-        uncategorizedActual: unbudgetedActual, unbudgetedActual, projectedVariable, weeklyLeisure: toNumber(plan.weeklyLeisureBudget), monthlyLeisure,
-        leisureActualMonth: 0, leisureActualWeek, essentialMonthly, emergencyMin, emergencyMax, emergencyProgress, debtPayment, debtBurden,
-        freeAfterLeisure: hasLeisureTarget ? Math.max(0, availableVariable - monthlyLeisure) : availableVariable, hasLeisureTarget, dataCoverage, recommendation,
-      },
-    });
+    return NextResponse.json({ plan, householdSize: user.householdSize, incomes, funds, budgetCategories, unbudgetedCategories, summary: {
+      plannedIncome: configuredIncome, receivedIncome, projectedIncome, netIncome: projectedIncome, configuredIncome, netIncomeActual: receivedIncome,
+      actualExpenses, fixedCommitments: hardActual, hardActual, hardBudgetLimit, sinkingMonthly, savings,
+      availableVariable, actualAvailable: availableVariable, variableActual, variableBudgetLimit, variableRemaining,
+      uncategorizedActual: unbudgetedActual, unbudgetedActual, projectedVariable: variableActual > 0 ? (variableActual / monthElapsedDays) * daysInMonth : 0,
+      weeklyLeisure: toNumber(plan.weeklyLeisureBudget), monthlyLeisure, leisureActualMonth: 0, leisureActualWeek,
+      essentialMonthly, emergencyMin, emergencyMax, emergencyProgress, debtPayment, debtPrincipal, debtBurden,
+      freeAfterLeisure: hasLeisureTarget ? availableVariable - monthlyLeisure : availableVariable, hasLeisureTarget, dataCoverage, recommendation,
+    }});
   } catch {
     return NextResponse.json({ error: "לא ניתן לטעון את התוכנית המשפחתית" }, { status: 400 });
   }
