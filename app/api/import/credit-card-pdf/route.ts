@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { sanitizeImportText, MAX_SANITIZED_IMPORT_CHARS } from "@/lib/import/privacy";
 import { normalizeCategoryName } from "@/lib/import/category-names";
+import { creditCardIdentityDateRange, creditCardIdentityMatches } from "@/lib/import/credit-card-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,15 +82,19 @@ export async function POST(req: Request) {
       const fingerprints = uniqueRows.map(fingerprint); const existingRows = await prisma.creditCardTransaction.findMany({ where: { userId: user.id, fingerprint: { in: fingerprints } }, select: { id: true, fingerprint: true } }); const existingByFingerprint = new Map(existingRows.map(row => [row.fingerprint, row.id]));
       const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map(category => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category]));
       const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id, type: "CARD" }, select: { id: true, nickname: true, last4: true } });
-      let createdRows = 0, updatedRows = 0, createdCategories = 0;
+      let createdRows = 0, updatedRows = 0, identityMatchedRows = 0, createdCategories = 0;
       await prisma.$transaction(async tx => { for (const row of uniqueRows) {
         const categoryName = normalizeCategoryName(row.categoryName); const categoryKey = `EXPENSE:${categoryName.toLocaleLowerCase("he")}`; let category = categoryMap.get(categoryKey); if (!category) { category = await tx.category.create({ data: { userId: user.id, name: categoryName, type: "EXPENSE" } }); categoryMap.set(categoryKey, category); createdCategories++; }
         const matchedMethod = matchPaymentMethod(row.paymentMethodName, methods);
         const data = { type: row.type, kind: row.kind, amount: row.amount, purchaseDate: new Date(`${row.date}T00:00:00.000Z`), postingDate: new Date(`${row.date}T00:00:00.000Z`), merchant: row.merchant.trim(), note: row.note?.trim() || null, categoryId: category.id, paymentMethodId: matchedMethod?.id || null, installmentTotal: row.installmentTotal ?? null, installmentNumber: row.installmentNumber ?? null, fingerprint: fingerprint(row) };
-        const id = existingByFingerprint.get(data.fingerprint); if (id) { await tx.creditCardTransaction.update({ where: { id }, data }); updatedRows++; } else { await tx.creditCardTransaction.create({ data: { ...data, userId: user.id } }); createdRows++; }
+        const id = existingByFingerprint.get(data.fingerprint);
+        if (id) { await tx.creditCardTransaction.update({ where: { id }, data }); updatedRows++; continue; }
+        const candidates = await tx.creditCardTransaction.findMany({ where: { userId: user.id, type: row.type, amount: row.amount, purchaseDate: creditCardIdentityDateRange(row.date), ...(matchedMethod ? { paymentMethodId: matchedMethod.id } : {}) }, select: { id: true, fingerprint: true, purchaseDate: true, type: true, amount: true, merchant: true, note: true, installmentNumber: true, installmentTotal: true, paymentMethodId: true } });
+        const identityMatches = candidates.filter(candidate => creditCardIdentityMatches({ date: row.date, type: row.type, amount: row.amount, merchant: row.merchant, note: row.note, installmentNumber: row.installmentNumber, installmentTotal: row.installmentTotal, paymentMethodId: matchedMethod?.id || null }, candidate));
+        if (identityMatches.length === 1) { await tx.creditCardTransaction.update({ where: { id: identityMatches[0].id }, data: { ...data, fingerprint: identityMatches[0].fingerprint } }); updatedRows++; identityMatchedRows++; } else { await tx.creditCardTransaction.create({ data: { ...data, userId: user.id } }); createdRows++; }
       } });
       await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: parsed.numpages, rowsAnalyzed: uniqueRows.length, rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), categoriesCreated: createdCategories, completedAt: new Date() } });
-      return NextResponse.json({ success: true, source: "CREDIT_CARD_PDF", rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), categoriesCreated: createdCategories, pages: parsed.numpages, privacy: "sanitized-before-gemini" });
+      return NextResponse.json({ success: true, source: "CREDIT_CARD_PDF", rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), identityMatched: identityMatchedRows, categoriesCreated: createdCategories, pages: parsed.numpages, privacy: "sanitized-before-gemini" });
     } catch (error) { await prisma.importJob.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: error instanceof Error ? error.message.slice(0, 500) : "IMPORT_FAILED" } }).catch(() => undefined); throw error; }
   } catch (error) {
     const messages: Record<string, [string, number]> = { GEMINI_NOT_CONFIGURED: ["שירות Gemini לא מוגדר בשרת.", 503], GEMINI_AUTH_FAILED: ["מפתח Gemini אינו תקין או אינו מורשה.", 502], GEMINI_RATE_LIMITED: ["Gemini הגיע למגבלת הבקשות.", 429], GEMINI_TIMEOUT: ["Gemini לא הגיב בזמן.", 504], GEMINI_EMPTY_RESPONSE: ["Gemini לא החזיר נתונים.", 502], GEMINI_REQUEST_FAILED: ["הבקשה ל-Gemini נכשלה.", 502], EMPTY_PDF_TEXT: ["לא נמצא טקסט קריא ב-PDF. הקובץ כנראה סרוק כתמונה; נדרש OCR מקומי.", 422], NO_VALID_ROWS: ["לא נמצאו עסקאות אשראי תקינות ב-PDF.", 422] };
