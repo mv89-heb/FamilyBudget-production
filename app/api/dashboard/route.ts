@@ -13,8 +13,9 @@ import {
   monthRange,
   type FinancialTransaction,
 } from "@/lib/financial-engine";
+import { classifyTransactionPresentation } from "@/lib/category-classifier";
 
-type CategoryRow = { name: string; amount: Prisma.Decimal | number | null };
+type CategoryRow = { name: string; amount: Prisma.Decimal | number | null; note: string | null };
 
 export async function GET(req: Request) {
   try {
@@ -45,33 +46,17 @@ export async function GET(req: Request) {
         where: { userId: user.id, ...dateFilter },
         select: { type: true, kind: true, amount: true },
       }),
-      range
-        ? prisma.$queryRaw<CategoryRow[]>(Prisma.sql`
-            SELECT COALESCE(c."name", 'אחר') AS name,
-                   COALESCE(SUM(CASE WHEN t.type = 'INCOME' AND t.kind = 'REFUND' THEN -t.amount ELSE t.amount END), 0) AS amount
-            FROM "Transaction" t
-            LEFT JOIN "Category" c ON c.id = t."categoryId"
-            WHERE t."userId" = ${user.id}
-              AND ((t.type = 'EXPENSE' AND t.kind IN ('STANDARD', 'LOAN_INTEREST'))
-                OR (t.type = 'INCOME' AND t.kind = 'REFUND'))
-              AND t."transactionDate" >= ${range.start}
-              AND t."transactionDate" < ${range.end}
-            GROUP BY COALESCE(c."name", 'אחר')
-            HAVING COALESCE(SUM(CASE WHEN t.type = 'INCOME' AND t.kind = 'REFUND' THEN -t.amount ELSE t.amount END), 0) <> 0
-            ORDER BY amount DESC
-          `)
-        : prisma.$queryRaw<CategoryRow[]>(Prisma.sql`
-            SELECT COALESCE(c."name", 'אחר') AS name,
-                   COALESCE(SUM(CASE WHEN t.type = 'INCOME' AND t.kind = 'REFUND' THEN -t.amount ELSE t.amount END), 0) AS amount
-            FROM "Transaction" t
-            LEFT JOIN "Category" c ON c.id = t."categoryId"
-            WHERE t."userId" = ${user.id}
-              AND ((t.type = 'EXPENSE' AND t.kind IN ('STANDARD', 'LOAN_INTEREST'))
-                OR (t.type = 'INCOME' AND t.kind = 'REFUND'))
-            GROUP BY COALESCE(c."name", 'אחר')
-            HAVING COALESCE(SUM(CASE WHEN t.type = 'INCOME' AND t.kind = 'REFUND' THEN -t.amount ELSE t.amount END), 0) <> 0
-            ORDER BY amount DESC
-          `),
+      prisma.transaction.findMany({
+        where: {
+          userId: user.id,
+          ...dateFilter,
+          OR: [
+            { type: "EXPENSE", kind: { in: ["STANDARD", "LOAN_INTEREST"] } },
+            { type: "INCOME", kind: "REFUND" },
+          ],
+        },
+        select: { type: true, kind: true, amount: true, category: { select: { name: true } }, note: true },
+      }),
     ]);
 
     const normalized: FinancialTransaction[] = transactions.map((transaction) => ({
@@ -84,8 +69,15 @@ export async function GET(req: Request) {
     const financingActivity = calculateFinancingActivity(normalized);
     const financingCashFlow = calculateFinancingCashFlow(normalized);
     const cashFlowBalance = calculateCashFlowBalance(normalized);
-    const byCategory = categoryRows
-      .map((row) => ({ name: row.name || "אחר", amount: Number(row.amount || 0) }))
+
+    const categoryMap = new Map<string, number>();
+    for (const row of categoryRows) {
+      const view = classifyTransactionPresentation(row.category?.name, row.note);
+      const signed = row.kind === "REFUND" ? -Math.abs(Number(row.amount)) : Math.abs(Number(row.amount));
+      categoryMap.set(view.name, (categoryMap.get(view.name) || 0) + signed);
+    }
+    const byCategory = Array.from(categoryMap.entries())
+      .map(([name, amount]) => ({ name, amount }))
       .filter((row) => row.amount !== 0)
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
@@ -105,6 +97,8 @@ export async function GET(req: Request) {
         amount: Number(row.amount),
         date: row.transactionDate.toISOString(),
         category: row.category?.name || "אחר",
+        presentationCategory: classifyTransactionPresentation(row.category?.name, row.note).name,
+        presentationReason: classifyTransactionPresentation(row.category?.name, row.note).reason,
         paymentMethod: row.paymentMethod ? `${row.paymentMethod.nickname}${row.paymentMethod.last4 ? ` •••• ${row.paymentMethod.last4}` : ""}` : null,
         note: row.note,
       })),
