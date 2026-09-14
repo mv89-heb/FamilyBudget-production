@@ -33,26 +33,22 @@ function dateMonthEvidence(pageTexts: string[]) {
   const datePatterns = [
     /\b(20\d{2})\s*[./-]\s*(0?[1-9]|1[0-2])\s*[./-]\s*(0?[1-9]|[12]\d|3[01])\b/g,
     /\b(0?[1-9]|[12]\d|3[01])\s*[./-]\s*(0?[1-9]|1[0-2])\s*[./-]\s*(20\d{2}|\d{2})\b/g,
-    /\b(0?[1-9]|1[0-2])\s*[./-]\s*(20\d{2}|\d{2})\b/g,
   ];
   pageTexts.forEach((page, pageIndex) => {
     for (const pattern of datePatterns) {
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(page))) {
         if (pattern === datePatterns[0]) addEvidence(evidence, Number(match[1]), Number(match[2]), pageIndex);
-        else if (pattern === datePatterns[1]) addEvidence(evidence, normalizeYear(match[3]), Number(match[2]), pageIndex);
-        else addEvidence(evidence, normalizeYear(match[2]), Number(match[1]), pageIndex);
+        else addEvidence(evidence, normalizeYear(match[3]), Number(match[2]), pageIndex);
       }
     }
-    const hebrewMonths: Array<[string, number]> = [["ינואר",1],["פברואר",2],["מרץ",3],["אפריל",4],["מאי",5],["יוני",6],["יולי",7],["אוגוסט",8],["ספטמבר",9],["אוקטובר",10],["נובמבר",11],["דצמבר",12]];
-    for (const [name, month] of hebrewMonths) { const re = new RegExp(`${name}\\s+(20\\d{2})`, "g"); let match: RegExpExecArray | null; while ((match = re.exec(page))) addEvidence(evidence, Number(match[1]), month, pageIndex); }
   });
   return [...evidence.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 function rowsByMonth(rows: PdfRow[]) { return new Set(rows.map(row => row.date.slice(0, 7))); }
 function monthPages(pageTexts: string[], month: string, evidence: MonthEvidence | undefined) {
   const [year, monthNumber] = month.split("-");
-  const patterns = [new RegExp(`\\b${year}\\s*[./-]\\s*${monthNumber}\\s*[./-]\\s*\\d{1,2}\\b`), new RegExp(`\\b\\d{1,2}\\s*[./-]\\s*${monthNumber}\\s*[./-]\\s*${year}\\b`), new RegExp(`\\b${monthNumber}\\s*[./-]\\s*${year}\\b`)];
+  const patterns = [new RegExp(`\\b${year}\\s*[./-]\\s*${monthNumber}\\s*[./-]\\s*\\d{1,2}\\b`), new RegExp(`\\b\\d{1,2}\\s*[./-]\\s*${monthNumber}\\s*[./-]\\s*${year}\\b`)];
   const indexes = pageTexts.map((page, index) => patterns.some(pattern => pattern.test(page)) ? index : -1).filter(index => index >= 0);
   const candidates = [...new Set([...(evidence?.pages || []), ...indexes])];
   if (!candidates.length) return pageTexts.map((_, index) => index).slice(0, MAX_RECOVERY_PAGES);
@@ -103,7 +99,8 @@ export async function POST(req: Request) {
     try {
       const parsed = await pdfParse(buffer); const text = sanitizeImportText(parsed.text || ""); if (!text) throw new Error("PDF_TEXT_EMPTY");
       const pageTexts = text.split(/\f+/).map(page => page.trim()).filter(Boolean); const pages = pageTexts.length > 1 ? pageTexts : chunkText(text);
-      const evidence = dateMonthEvidence(pages); const expectedMonths = evidence.filter(item => item.occurrences > 0).map(item => item.month);
+      const evidence = dateMonthEvidence(pages);
+      const expectedMonths = evidence.filter(item => item.occurrences >= 2).map(item => item.month);
       let allRows: PdfRow[] = []; for (const page of pages) allRows.push(...await requestGemini(page));
       const unique = new Map<string, PdfRow>(); for (const row of allRows) unique.set(fingerprint(row), row);
       let presentMonths = rowsByMonth([...unique.values()]); const missingMonths = expectedMonths.filter(month => !presentMonths.has(month));
