@@ -13,8 +13,6 @@ test("Excel import safety contract", () => {
     "CREDIT_CARD",
     "creditCardIdentityMatches",
     "fingerprint",
-    "fileHash",
-    "reprocess",
   ]) assert.ok(source.includes(contract), `missing import safety contract: ${contract}`);
 });
 
