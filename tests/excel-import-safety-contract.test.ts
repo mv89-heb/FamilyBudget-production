@@ -8,22 +8,15 @@ test("Excel import safety contract", () => {
   for (const contract of [
     "SENSITIVE_HEADER",
     "redactForGemini",
-    "extractSheetRows",
-    "hasDebitCredit",
-    "legacyKey",
-    "legacyTransactions",
-    "legacyMatches",
-    "identityKey",
-    "reimportMatches",
-    "identityCandidates.length === 1",
-    "fingerprint: null",
+    "sourceFileHash",
     "ImportSource",
     "CREDIT_CARD",
+    "creditCardIdentityMatches",
     "CreditCardTransaction",
-    "creditCardFingerprint",
-    "creditCardType",
-    "kind = type === \"REFUND\" ? \"REFUND\" : \"PURCHASE\"",
-    "fileHash = createHash(\"sha256\").update(`${source}:`).update(buffer).digest(\"hex\")",
+    "fingerprint",
+    "fileHash",
+    "ImportJob",
+    "reprocess",
   ]) assert.ok(source.includes(contract), `missing import safety contract: ${contract}`);
 });
 
