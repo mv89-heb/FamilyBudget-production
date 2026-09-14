@@ -1,5 +1,6 @@
 export type CreditCardIdentityInput = {
-  date: string;
+  date?: string;
+  purchaseDate?: Date;
   type: "CHARGE" | "REFUND";
   amount: number;
   merchant: string;
@@ -15,9 +16,9 @@ export type CreditCardIdentityCandidate = {
   amount: unknown;
   merchant: string;
   note: string | null;
-  installmentNumber: number | null;
-  installmentTotal: number | null;
-  paymentMethodId: string | null;
+  installmentNumber?: number | null;
+  installmentTotal?: number | null;
+  paymentMethodId?: string | null;
 };
 
 export function normalizeCreditCardText(value: string | null | undefined) {
@@ -34,9 +35,11 @@ export function normalizeCreditCardText(value: string | null | undefined) {
 
 export function creditCardIdentityMatches(input: CreditCardIdentityInput, candidate: CreditCardIdentityCandidate) {
   const candidateAmount = Number(candidate.amount);
+  const inputDate = input.date ?? input.purchaseDate?.toISOString().slice(0, 10);
+  if (!inputDate) return false;
   if (!Number.isFinite(candidateAmount) || Math.abs(candidateAmount - input.amount) > 0.005) return false;
   if (candidate.type !== input.type) return false;
-  if (candidate.purchaseDate.toISOString().slice(0, 10) !== input.date) return false;
+  if (candidate.purchaseDate.toISOString().slice(0, 10) !== inputDate) return false;
   if (normalizeCreditCardText(candidate.merchant) !== normalizeCreditCardText(input.merchant)) return false;
   if (normalizeCreditCardText(candidate.note) !== normalizeCreditCardText(input.note)) return false;
   if ((candidate.installmentNumber ?? null) !== (input.installmentNumber ?? null)) return false;
