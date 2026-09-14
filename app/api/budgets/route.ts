@@ -29,7 +29,13 @@ export async function GET(req: Request) {
     for (const transaction of expenses) {
       const amount = Number(transaction.amount);
       const current = spent.get(transaction.categoryId) || 0;
-      if (isOperatingExpense(transaction)) spent.set(transaction.categoryId, current + amount);
+      const normalized = {
+        type: transaction.type,
+        kind: transaction.kind,
+        amount,
+        categoryId: transaction.categoryId,
+      };
+      if (isOperatingExpense(normalized)) spent.set(transaction.categoryId, current + amount);
       else if (transaction.type === "INCOME" && transaction.kind === "REFUND") spent.set(transaction.categoryId, current - amount);
     }
 

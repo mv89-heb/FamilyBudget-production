@@ -50,19 +50,33 @@ export function signedOperatingAmount(transaction: FinancialTransaction): number
 }
 
 export function calculateNetExpense(transactions: readonly FinancialTransaction[]): number {
-  return transactions.reduce((total, transaction) => total + signedOperatingAmount(transaction), 0);
+  let total = 0;
+  for (const transaction of transactions) total += signedOperatingAmount(transaction);
+  return total;
 }
 
 export function calculateOperatingIncome(transactions: readonly FinancialTransaction[]): number {
-  return transactions.reduce((total, transaction) => total + (isOperatingIncome(transaction) ? Math.abs(transaction.amount) : 0), 0);
+  let total = 0;
+  for (const transaction of transactions) {
+    if (isOperatingIncome(transaction)) total += Math.abs(transaction.amount);
+  }
+  return total;
 }
 
 export function calculateDebtPayments(transactions: readonly FinancialTransaction[]): number {
-  return transactions.reduce((total, transaction) => total + (isLoanPrincipal(transaction) || isLoanInterest(transaction) ? Math.abs(transaction.amount) : 0), 0);
+  let total = 0;
+  for (const transaction of transactions) {
+    if (isLoanPrincipal(transaction) || isLoanInterest(transaction)) total += Math.abs(transaction.amount);
+  }
+  return total;
 }
 
 export function calculateFinancingActivity(transactions: readonly FinancialTransaction[]): number {
-  return transactions.reduce((total, transaction) => total + (isFinancingActivity(transaction) ? Math.abs(transaction.amount) : 0), 0);
+  let total = 0;
+  for (const transaction of transactions) {
+    if (isFinancingActivity(transaction)) total += Math.abs(transaction.amount);
+  }
+  return total;
 }
 
 export function getIsraelMonth(date = new Date()): string {
@@ -103,5 +117,7 @@ export function toNumber(value: unknown): number {
 }
 
 export function sum(values: readonly unknown[]): number {
-  return values.reduce((total, value) => total + toNumber(value), 0);
+  let total = 0;
+  for (const value of values) total += toNumber(value);
+  return total;
 }
