@@ -15,9 +15,10 @@ export async function GET(req: Request) {
   try {
     const user = await requireUser();
     const params = new URL(req.url).searchParams;
-    const month = params.get("month") || new Date().toISOString().slice(0, 7);
+    const month = params.get("month") || "all";
     const page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
     const cardId = params.get("cardId") || "all";
+    const search = (params.get("search") || "").trim();
 
     const dateFilter = month === "all" ? {} : (() => {
       if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("INVALID_MONTH");
@@ -28,6 +29,7 @@ export async function GET(req: Request) {
     const where = {
       userId: user.id,
       ...(cardId === "all" ? {} : { paymentMethodId: cardId }),
+      ...(search ? { merchant: { contains: search, mode: "insensitive" as const } } : {}),
       ...dateFilter,
     };
 
