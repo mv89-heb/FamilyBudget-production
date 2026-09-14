@@ -4,9 +4,11 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --no-audit --no-fund && npm run build
-    startCommand: yarn start
+    startCommand: npm start
     healthCheckPath: /login
     envVars:
+      - key: NODE_VERSION
+        value: 24.14.1
       - key: DATABASE_URL
         sync: false
       - key: AUTH_SECRET
