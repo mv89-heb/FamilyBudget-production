@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  calculateCreditCardNetExpense,
   calculateDebtPayments,
   calculateFinancingActivity,
   calculateNetExpense,
   calculateOperatingIncome,
   getIsraelMonth,
   monthRange,
+  signedCreditCardAmount,
   signedOperatingAmount,
   sum,
   toNumber,
@@ -37,6 +39,24 @@ test("financing and debt activity stay outside operating expense", () => {
   assert.equal(calculateNetExpense(transactions), 150);
   assert.equal(calculateDebtPayments(transactions), 450);
   assert.equal(calculateFinancingActivity(transactions), 3000);
+});
+
+test("credit card charges and refunds produce net card expense", () => {
+  const transactions = [
+    { type: "CHARGE", kind: "PURCHASE", amount: 500 },
+    { type: "CHARGE", kind: "INSTALLMENT", amount: 120 },
+    { type: "CHARGE", kind: "FEE", amount: 15 },
+    { type: "REFUND", kind: "REFUND", amount: 200 },
+  ];
+
+  assert.equal(calculateCreditCardNetExpense(transactions), 435);
+  assert.equal(signedCreditCardAmount(transactions[3]), -200);
+});
+
+test("credit card bank settlement is not a card expense", () => {
+  const settlement = { type: "TRANSFER", kind: "OTHER", amount: 635 };
+  assert.equal(signedCreditCardAmount(settlement), 0);
+  assert.equal(calculateCreditCardNetExpense([settlement]), 0);
 });
 
 test("numeric normalization handles common database values safely", () => {
