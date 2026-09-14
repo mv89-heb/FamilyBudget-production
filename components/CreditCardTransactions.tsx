@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CreditCard, FileSpreadsheet, ShieldCheck, Upload } from "lucide-react";
+import { CreditCard, Search, Upload } from "lucide-react";
 
 type Row = {
   id: string;
@@ -22,13 +23,13 @@ type Row = {
 type Card = { id: string; nickname: string; last4: string | null; type: string };
 
 const money = (value: number) => value.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 2 });
-const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 export default function CreditCardTransactions() {
   const searchParams = useSearchParams();
   const requestedMonth = searchParams.get("month");
-  const [month, setMonth] = useState(requestedMonth === "all" || /^\d{4}-\d{2}$/.test(requestedMonth || "") ? requestedMonth! : currentMonth());
+  const [month, setMonth] = useState(requestedMonth === "all" || /^\d{4}-\d{2}$/.test(requestedMonth || "") ? requestedMonth! : "all");
   const [cardId, setCardId] = useState("all");
+  const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +54,9 @@ export default function CreditCardTransactions() {
         const allRows: Row[] = [];
         let page = 1;
         while (true) {
-          const response = await fetch(`/api/credit-card-transactions?month=${encodeURIComponent(month)}&cardId=${encodeURIComponent(cardId)}&page=${page}`, { cache: "no-store" });
+          const params = new URLSearchParams({ month, cardId, page: String(page) });
+          if (search.trim()) params.set("search", search.trim());
+          const response = await fetch(`/api/credit-card-transactions?${params.toString()}`, { cache: "no-store" });
           if (!response.ok) throw new Error("לא ניתן לטעון תנועות אשראי");
           allRows.push(...(await response.json()) as Row[]);
           if (response.headers.get("X-Has-Next-Page") !== "true") break;
@@ -66,9 +69,9 @@ export default function CreditCardTransactions() {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
-    return () => { cancelled = true; };
-  }, [month, cardId]);
+    const timer = window.setTimeout(load, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [month, cardId, search]);
 
   const totals = useMemo(() => {
     const charges = rows.filter(row => row.type === "CHARGE").reduce((sum, row) => sum + Number(row.amount), 0);
@@ -84,11 +87,13 @@ export default function CreditCardTransactions() {
         <div>
           <div className="eyebrow">כרטיסי אשראי</div>
           <h1 className="page-title">תנועות אשראי</h1>
-          <p className="page-subtitle">פירוט רכישות, תשלומים, החזרים ועמלות בכרטיסי האשראי — מופרד מתנועות הבנק.</p>
+          <p className="page-subtitle">כל רכישות, תשלומים, החזרים ועמלות שכבר נשמרו במערכת — מופרדים מתנועות הבנק.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-white p-2 shadow-sm">
           <span className="px-2 text-sm text-slate-500">תקופה</span>
-          <select aria-label="בחירת תקופה" value={month === "all" ? "all" : "month"} onChange={e => setMonth(e.target.value === "all" ? "all" : currentMonth())} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium outline-none focus:border-indigo-500"><option value="month">חודש נבחר</option><option value="all">כל התקופות</option></select>
+          <select aria-label="בחירת תקופה" value={month === "all" ? "all" : "month"} onChange={e => setMonth(e.target.value === "all" ? "all" : new Date().toISOString().slice(0, 7))} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium outline-none focus:border-indigo-500">
+            <option value="all">כל התקופות</option><option value="month">חודש נבחר</option>
+          </select>
           {month !== "all" && <input aria-label="בחירת חודש" type="month" value={month} onChange={e => setMonth(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-500" />}
           <select aria-label="בחירת כרטיס" value={cardId} onChange={e => setCardId(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium outline-none focus:border-indigo-500">
             <option value="all">כל הכרטיסים</option>
@@ -103,20 +108,15 @@ export default function CreditCardTransactions() {
         <div className="card-elevated p-5"><div className="text-sm font-medium text-slate-500">חיוב נטו</div><div className="mt-2 text-2xl font-extrabold text-slate-900">{money(totals.net)}</div></div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_.8fr]">
-        <div className="card-elevated p-5">
-          <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-slate-100 p-2"><Upload size={20} /></div>
-            <div><h2 className="text-lg font-extrabold text-slate-900">ייבוא פירוט אשראי</h2><p className="mt-1 text-sm text-slate-500">השלב הבא יתמוך ב־Excel וב־PDF, כולל זיהוי עמודות, תשלומים וחיובים חוזרים.</p></div>
+      <section className="card-elevated p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative flex-1">
+            <Search size={18} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חיפוש לפי בית עסק..." aria-label="חיפוש בית עסק" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-4 pr-10 text-sm outline-none focus:border-indigo-500" />
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <button type="button" disabled className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-400"><FileSpreadsheet size={18} />ייבוא Excel · בקרוב</button>
-            <button type="button" disabled className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-400"><Upload size={18} />ייבוא PDF · בקרוב</button>
-          </div>
+          <Link href="/import" className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"><Upload size={17} />ייבוא תנועות</Link>
         </div>
-        <div className="card-elevated border border-emerald-100 bg-emerald-50/40 p-5">
-          <div className="flex items-start gap-3"><div className="rounded-xl bg-white p-2 text-emerald-600"><ShieldCheck size={20} /></div><div><h2 className="text-lg font-extrabold text-slate-900">פרטיות כברירת מחדל</h2><p className="mt-1 text-sm leading-6 text-slate-600">לא שומרים מספר כרטיס מלא או קוד אבטחה. לניתוח AI יישלח בעתיד רק מידע שעבר הסרה/טשטוש של פרטים מזהים, ורצוי שהניתוח הבסיסי יוכל להתבצע מקומית.</p></div></div>
-        </div>
+        <p className="mt-2 text-xs text-slate-500">הייבוא מתבצע במסך הייבוא המרכזי. כאן מוצגות רק התנועות שנשמרו.</p>
       </section>
 
       {error && <div role="alert" className="rounded-2xl bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">{error}</div>}
@@ -127,7 +127,7 @@ export default function CreditCardTransactions() {
           <table className="w-full min-w-[920px] text-sm">
             <thead><tr className="border-b bg-slate-50 text-right text-xs font-bold text-slate-500"><th className="px-4 py-3">תאריך</th><th className="px-4 py-3">בית עסק</th><th className="px-4 py-3">קטגוריה</th><th className="px-4 py-3">כרטיס</th><th className="px-4 py-3">סוג</th><th className="px-4 py-3">תשלום</th><th className="px-4 py-3">סכום</th></tr></thead>
             <tbody>
-              {!loading && rows.length === 0 && <tr><td colSpan={7} className="px-4 py-14 text-center text-slate-500">אין עדיין תנועות אשראי. לאחר הוספת ייבוא Excel/PDF הן יופיעו כאן.</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={7} className="px-4 py-14 text-center text-slate-500">אין תנועות אשראי התואמות לסינון הנוכחי.</td></tr>}
               {rows.map(row => {
                 const refund = row.type === "REFUND";
                 const installment = row.installmentNumber && row.installmentTotal ? `תשלום ${row.installmentNumber}/${row.installmentTotal}` : row.kind === "INSTALLMENT" ? "תשלומים" : row.kind === "FEE" ? "עמלה" : row.kind === "REFUND" ? "החזר" : "רכישה";
