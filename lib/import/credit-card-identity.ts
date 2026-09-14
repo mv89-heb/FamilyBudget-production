@@ -45,9 +45,20 @@ export function creditCardIdentityMatches(input: CreditCardIdentityInput, candid
   return true;
 }
 
-export function creditCardIdentityDateRange(date: string) {
+export function creditCardIdentityDateRange(date: string): { from: Date; to: Date };
+export function creditCardIdentityDateRange(rows: Array<{ date: Date }>): { from: Date; to: Date } | null;
+export function creditCardIdentityDateRange(value: string | Array<{ date: Date }>) {
+  if (typeof value === "string") {
+    return {
+      from: new Date(`${value}T00:00:00.000Z`),
+      to: new Date(`${value}T23:59:59.999Z`),
+    };
+  }
+  if (!value.length) return null;
+  const timestamps = value.map(item => item.date.getTime()).filter(Number.isFinite);
+  if (!timestamps.length) return null;
   return {
-    gte: new Date(`${date}T00:00:00.000Z`),
-    lte: new Date(`${date}T23:59:59.999Z`),
+    from: new Date(Math.min(...timestamps)),
+    to: new Date(Math.max(...timestamps) + 86_399_999),
   };
 }
