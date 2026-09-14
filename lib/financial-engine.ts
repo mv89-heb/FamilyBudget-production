@@ -79,6 +79,9 @@ export function calculateDebtPayments(transactions: readonly FinancialTransactio
   return total;
 }
 
+/** Gross financing activity for reporting. This is not the cash-flow sign.
+ * Loan receipts are inflows; principal repayments are outflows.
+ */
 export function calculateFinancingActivity(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
   for (const transaction of transactions) {
@@ -88,9 +91,28 @@ export function calculateFinancingActivity(transactions: readonly FinancialTrans
 }
 
 /**
- * Card purchases, installments and fees increase household expense.
- * Card refunds reduce it. The bank settlement of a card is intentionally
- * represented in the bank ledger as a TRANSFER and is therefore not included here.
+ * Net cash effect of financing/non-operating transactions.
+ * Positive = cash entered the household; negative = cash left the household.
+ * Transfers and cash withdrawals are neutral at household level because they
+ * move money between representations/accounts rather than creating income or expense.
+ */
+export function calculateFinancingCashFlow(transactions: readonly FinancialTransaction[]): number {
+  let total = 0;
+  for (const transaction of transactions) {
+    if (isLoanReceived(transaction)) total += Math.abs(transaction.amount);
+    else if (isLoanPrincipal(transaction)) total -= Math.abs(transaction.amount);
+  }
+  return total;
+}
+
+/** True household cash balance for the selected period. */
+export function calculateCashFlowBalance(transactions: readonly FinancialTransaction[]): number {
+  return calculateOperatingIncome(transactions) - calculateNetExpense(transactions) + calculateFinancingCashFlow(transactions);
+}
+
+/**
+ * Card purchases, installments and fees are consumption detail only.
+ * They must not be added to Transaction-based cash-flow totals.
  */
 export function signedCreditCardAmount(transaction: CreditCardFinancialTransaction): number {
   if (transaction.type === "REFUND" || transaction.kind === "REFUND") return -Math.abs(transaction.amount);
