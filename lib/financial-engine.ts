@@ -7,6 +7,14 @@ export type FinancialTransaction = {
   categoryName?: string | null;
 };
 
+export type CreditCardFinancialTransaction = {
+  type: string;
+  kind: string;
+  amount: number;
+  purchaseDate?: Date;
+  postingDate?: Date | null;
+};
+
 export const EXPENSE_KINDS = ["STANDARD", "LOAN_INTEREST"] as const;
 export const INCOME_KINDS = ["STANDARD"] as const;
 export const FINANCING_KINDS = ["LOAN_RECEIVED", "LOAN_PRINCIPAL", "TRANSFER", "CASH_WITHDRAWAL"] as const;
@@ -76,6 +84,23 @@ export function calculateFinancingActivity(transactions: readonly FinancialTrans
   for (const transaction of transactions) {
     if (isFinancingActivity(transaction)) total += Math.abs(transaction.amount);
   }
+  return total;
+}
+
+/**
+ * Card purchases, installments and fees increase household expense.
+ * Card refunds reduce it. The bank settlement of a card is intentionally
+ * represented in the bank ledger as a TRANSFER and is therefore not included here.
+ */
+export function signedCreditCardAmount(transaction: CreditCardFinancialTransaction): number {
+  if (transaction.type === "REFUND" || transaction.kind === "REFUND") return -Math.abs(transaction.amount);
+  if (transaction.type === "CHARGE") return Math.abs(transaction.amount);
+  return 0;
+}
+
+export function calculateCreditCardNetExpense(transactions: readonly CreditCardFinancialTransaction[]): number {
+  let total = 0;
+  for (const transaction of transactions) total += signedCreditCardAmount(transaction);
   return total;
 }
 
