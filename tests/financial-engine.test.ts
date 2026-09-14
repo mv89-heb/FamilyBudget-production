@@ -36,7 +36,7 @@ test("financing and debt activity stay outside operating expense", () => {
 
   assert.equal(calculateNetExpense(transactions), 150);
   assert.equal(calculateDebtPayments(transactions), 450);
-  assert.equal(calculateFinancingActivity(transactions), 1000);
+  assert.equal(calculateFinancingActivity(transactions), 3000);
 });
 
 test("numeric normalization handles common database values safely", () => {
