@@ -5,6 +5,7 @@ export type FinancialTransaction = {
   transactionDate?: Date;
   categoryId?: string | null;
   categoryName?: string | null;
+  note?: string | null;
 };
 
 export type CreditCardFinancialTransaction = {
@@ -19,38 +20,17 @@ export const EXPENSE_KINDS = ["STANDARD", "LOAN_INTEREST"] as const;
 export const INCOME_KINDS = ["STANDARD"] as const;
 export const FINANCING_KINDS = ["LOAN_RECEIVED", "LOAN_PRINCIPAL", "TRANSFER", "CASH_WITHDRAWAL"] as const;
 
-export function isTransfer(transaction: FinancialTransaction): boolean {
-  return transaction.kind === "TRANSFER";
-}
-export function isCashWithdrawal(transaction: FinancialTransaction): boolean {
-  return transaction.kind === "CASH_WITHDRAWAL";
-}
-export function isLoanPrincipal(transaction: FinancialTransaction): boolean {
-  return transaction.kind === "LOAN_PRINCIPAL";
-}
-export function isLoanInterest(transaction: FinancialTransaction): boolean {
-  return transaction.kind === "LOAN_INTEREST";
-}
-export function isLoanReceived(transaction: FinancialTransaction): boolean {
-  return transaction.kind === "LOAN_RECEIVED";
-}
-export function isRefund(transaction: FinancialTransaction): boolean {
-  return transaction.kind === "REFUND";
-}
-export function isOperatingExpense(transaction: FinancialTransaction): boolean {
-  return transaction.type === "EXPENSE" && (EXPENSE_KINDS as readonly string[]).includes(transaction.kind);
-}
-export function isOperatingIncome(transaction: FinancialTransaction): boolean {
-  return transaction.type === "INCOME" && (INCOME_KINDS as readonly string[]).includes(transaction.kind);
-}
-export function isFinancingActivity(transaction: FinancialTransaction): boolean {
-  return (FINANCING_KINDS as readonly string[]).includes(transaction.kind);
-}
+export function isTransfer(transaction: FinancialTransaction): boolean { return transaction.kind === "TRANSFER"; }
+export function isCashWithdrawal(transaction: FinancialTransaction): boolean { return transaction.kind === "CASH_WITHDRAWAL"; }
+export function isLoanPrincipal(transaction: FinancialTransaction): boolean { return transaction.kind === "LOAN_PRINCIPAL"; }
+export function isLoanInterest(transaction: FinancialTransaction): boolean { return transaction.kind === "LOAN_INTEREST"; }
+export function isLoanReceived(transaction: FinancialTransaction): boolean { return transaction.kind === "LOAN_RECEIVED"; }
+export function isRefund(transaction: FinancialTransaction): boolean { return transaction.kind === "REFUND"; }
+export function isOperatingExpense(transaction: FinancialTransaction): boolean { return transaction.type === "EXPENSE" && (EXPENSE_KINDS as readonly string[]).includes(transaction.kind); }
+export function isOperatingIncome(transaction: FinancialTransaction): boolean { return transaction.type === "INCOME" && (INCOME_KINDS as readonly string[]).includes(transaction.kind); }
+export function isFinancingActivity(transaction: FinancialTransaction): boolean { return (FINANCING_KINDS as readonly string[]).includes(transaction.kind); }
 
-/**
- * Refunds are stored as their own transaction kind and reduce operating expense.
- * A refund is never treated as ordinary household income.
- */
+/** Refunds are stored as their own transaction kind and reduce operating expense. */
 export function signedOperatingAmount(transaction: FinancialTransaction): number {
   if (isRefund(transaction)) return -Math.abs(transaction.amount);
   if (isOperatingExpense(transaction)) return Math.abs(transaction.amount);
@@ -65,37 +45,24 @@ export function calculateNetExpense(transactions: readonly FinancialTransaction[
 
 export function calculateOperatingIncome(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
-  for (const transaction of transactions) {
-    if (isOperatingIncome(transaction)) total += Math.abs(transaction.amount);
-  }
+  for (const transaction of transactions) if (isOperatingIncome(transaction)) total += Math.abs(transaction.amount);
   return total;
 }
 
 export function calculateDebtPayments(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
-  for (const transaction of transactions) {
-    if (isLoanPrincipal(transaction) || isLoanInterest(transaction)) total += Math.abs(transaction.amount);
-  }
+  for (const transaction of transactions) if (isLoanPrincipal(transaction) || isLoanInterest(transaction)) total += Math.abs(transaction.amount);
   return total;
 }
 
-/** Gross financing activity for reporting. This is not the cash-flow sign.
- * Loan receipts are inflows; principal repayments are outflows.
- */
+/** Gross financing activity for reporting. This is not the cash-flow sign. */
 export function calculateFinancingActivity(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
-  for (const transaction of transactions) {
-    if (isFinancingActivity(transaction)) total += Math.abs(transaction.amount);
-  }
+  for (const transaction of transactions) if (isFinancingActivity(transaction)) total += Math.abs(transaction.amount);
   return total;
 }
 
-/**
- * Net cash effect of financing/non-operating transactions.
- * Positive = cash entered the household; negative = cash left the household.
- * Transfers and cash withdrawals are neutral at household level because they
- * move money between representations/accounts rather than creating income or expense.
- */
+/** Net cash effect of financing/non-operating transactions. */
 export function calculateFinancingCashFlow(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
   for (const transaction of transactions) {
@@ -110,10 +77,7 @@ export function calculateCashFlowBalance(transactions: readonly FinancialTransac
   return calculateOperatingIncome(transactions) - calculateNetExpense(transactions) + calculateFinancingCashFlow(transactions);
 }
 
-/**
- * Card purchases, installments and fees are consumption detail only.
- * They must not be added to Transaction-based cash-flow totals.
- */
+/** Card purchases, installments and fees are consumption detail only. */
 export function signedCreditCardAmount(transaction: CreditCardFinancialTransaction): number {
   if (transaction.type === "REFUND" || transaction.kind === "REFUND") return -Math.abs(transaction.amount);
   if (transaction.type === "CHARGE") return Math.abs(transaction.amount);
@@ -146,25 +110,13 @@ export function nextMonthStart(month: string): Date {
   return next;
 }
 
-export function monthRange(month: string): { start: Date; end: Date } {
-  return { start: monthStart(month), end: nextMonthStart(month) };
-}
+export function monthRange(month: string): { start: Date; end: Date } { return { start: monthStart(month), end: nextMonthStart(month) }; }
 
 export function toNumber(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  if (value && typeof value === "object" && "toNumber" in value && typeof value.toNumber === "function") {
-    const parsed = Number(value.toNumber());
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
+  if (typeof value === "string") { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+  if (value && typeof value === "object" && "toNumber" in value && typeof value.toNumber === "function") { const parsed = Number(value.toNumber()); return Number.isFinite(parsed) ? parsed : 0; }
   return 0;
 }
 
-export function sum(values: readonly unknown[]): number {
-  let total = 0;
-  for (const value of values) total += toNumber(value);
-  return total;
-}
+export function sum(values: readonly unknown[]): number { let total = 0; for (const value of values) total += toNumber(value); return total; }
