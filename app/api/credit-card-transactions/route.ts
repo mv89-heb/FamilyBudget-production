@@ -19,11 +19,14 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1);
     const cardId = params.get("cardId") || "all";
     const search = (params.get("search") || "").trim();
+    const dateMode = params.get("dateMode") === "posting" ? "posting" : "purchase";
 
     const dateFilter = month === "all" ? {} : (() => {
       if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("INVALID_MONTH");
       const { start, end } = monthRange(month);
-      return { purchaseDate: { gte: start, lt: end } };
+      return dateMode === "posting"
+        ? { postingDate: { gte: start, lt: end } }
+        : { purchaseDate: { gte: start, lt: end } };
     })();
 
     const where = {
@@ -32,6 +35,10 @@ export async function GET(req: Request) {
       ...(search ? { merchant: { contains: search, mode: "insensitive" as const } } : {}),
       ...dateFilter,
     };
+
+    const orderBy = dateMode === "posting"
+      ? [{ postingDate: "desc" as const }, { purchaseDate: "desc" as const }, { id: "desc" as const }]
+      : [{ purchaseDate: "desc" as const }, { id: "desc" as const }];
 
     const rows = await prisma.creditCardTransaction.findMany({
       where,
@@ -50,7 +57,7 @@ export async function GET(req: Request) {
         category: { select: { id: true, name: true, type: true } },
         paymentMethod: { select: { id: true, nickname: true, last4: true, type: true } },
       },
-      orderBy: [{ purchaseDate: "desc" }, { id: "desc" }],
+      orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE + 1,
     });
@@ -61,6 +68,7 @@ export async function GET(req: Request) {
     response.headers.set("X-Page", String(page));
     response.headers.set("X-Page-Size", String(PAGE_SIZE));
     response.headers.set("X-Has-Next-Page", String(hasNextPage));
+    response.headers.set("X-Date-Mode", dateMode);
     return response;
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
