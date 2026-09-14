@@ -60,7 +60,7 @@ export async function GET() {
     const variableBudgetLimit = sum(budgets.filter(b => b.class === "VARIABLE").map(b => b.limit));
 
     const hardActual = sum(expenseTransactions.filter(t => hardCategoryIds.has(t.categoryId ?? "") || (!variableCategoryIds.has(t.categoryId ?? "") && isAutomaticHardExpense(t.categoryName ?? ""))).map(t => t.amount));
-    const variableActual = sum(expenseTransactions.filter(t => !hardCategoryIds.has(t.categoryId ?? "") && (variableCategoryIds.has(t.categoryId ?? "") || !isAutomaticHardExpense(t.categoryName ?? ""))).map(t => t.amount));
+    const variableActual = sum(expenseTransactions.filter(t => variableCategoryIds.has(t.categoryId ?? "") && !hardCategoryIds.has(t.categoryId ?? "")).map(t => t.amount));
     const unbudgetedActual = sum(expenseTransactions.filter(t => !budgetCategoryIds.has(t.categoryId ?? "")).map(t => t.amount));
     const leisureActualMonth = sum(expenseTransactions.filter(t => leisurePattern.test(t.categoryName ?? "")).map(t => t.amount));
     const leisureActualWeek = sum(expenseTransactions.filter(t => t.transactionDate >= currentWeek && leisurePattern.test(t.categoryName ?? "")).map(t => t.amount));
@@ -79,12 +79,13 @@ export async function GET() {
     const daysInMonth = Math.max(1, Math.round((nextMonth.getTime() - month.getTime()) / 86400000));
     const projectedVariable = variableActual > 0 ? (variableActual / monthElapsedDays) * daysInMonth : 0;
     const variableRemaining = variableBudgetLimit - variableActual;
+    const hasLeisureTarget = toNumber(plan.weeklyLeisureBudget) > 0;
 
     const recommendation = availableVariable <= 0
       ? "אין כרגע כסף פנוי אחרי הוצאות שבוצעו, החזרי חוב, חיסכון וקופות. לפני שמגדילים הוצאות כדאי לאזן את התוכנית."
       : debtBurden >= 0.4
         ? "נטל ההלוואות גבוה. שמור על הוצאות חובה וחיסכון בסיסי, והעדף צמצום חוב יקר לפני הגדלת הוצאות פנאי."
-        : leisureActualWeek > toNumber(plan.weeklyLeisureBudget) && toNumber(plan.weeklyLeisureBudget) > 0
+        : hasLeisureTarget && leisureActualWeek > toNumber(plan.weeklyLeisureBudget)
           ? `הוצאות הפנאי השבוע כבר מעל היעד ב-${Math.round(leisureActualWeek - toNumber(plan.weeklyLeisureBudget)).toLocaleString("he-IL")} ₪. כדאי לעצור כאן לשאר השבוע.`
           : variableBudgetLimit > 0 && variableActual > variableBudgetLimit
             ? `ההוצאות המשתנות עברו את התקציב החודשי ב-${Math.round(variableActual - variableBudgetLimit).toLocaleString("he-IL")} ₪. כדאי לצמצם את ההוצאות המשתנות עד סוף החודש.`
@@ -96,18 +97,16 @@ export async function GET() {
       const actual = sum(expenseTransactions.filter(t => t.categoryId === budget.categoryId).map(t => t.amount));
       budgetCategoriesMap.set(budget.categoryId, { categoryId: budget.categoryId, name: budget.category.name, class: budget.class, section: sectionForCategory(budget.category.name), limit, actual, remaining: limit - actual, percent: limit > 0 ? (actual / limit) * 100 : 0 });
     }
-    const actualByCategory = new Map<string, { name: string; actual: number }>();
-    for (const transaction of expenseTransactions) {
-      if (!transaction.categoryId) continue;
-      const current = actualByCategory.get(transaction.categoryId);
-      actualByCategory.set(transaction.categoryId, { name: transaction.categoryName ?? "אחר", actual: (current?.actual ?? 0) + transaction.amount });
-    }
-    for (const [categoryId, value] of actualByCategory) {
-      if (budgetCategoriesMap.has(categoryId)) continue;
-      const actual = value.actual;
-      budgetCategoriesMap.set(categoryId, { categoryId, name: value.name, class: isAutomaticHardExpense(value.name) ? "HARD" : "VARIABLE", section: sectionForCategory(value.name), limit: actual, actual, remaining: 0, percent: 100 });
-    }
     const budgetCategories = Array.from(budgetCategoriesMap.values()).sort((a, b) => a.section.localeCompare(b.section, "he") || b.actual - a.actual || a.name.localeCompare(b.name, "he"));
+
+    const unbudgetedByCategory = new Map<string, { categoryId: string; name: string; actual: number }>();
+    for (const transaction of expenseTransactions) {
+      const categoryId = transaction.categoryId ?? "uncategorized";
+      if (budgetCategoryIds.has(categoryId)) continue;
+      const current = unbudgetedByCategory.get(categoryId);
+      unbudgetedByCategory.set(categoryId, { categoryId, name: transaction.categoryName ?? "ללא קטגוריה", actual: (current?.actual ?? 0) + transaction.amount });
+    }
+    const unbudgetedCategories = Array.from(unbudgetedByCategory.values()).sort((a, b) => b.actual - a.actual || a.name.localeCompare(b.name, "he"));
 
     return NextResponse.json({
       plan,
@@ -115,6 +114,7 @@ export async function GET() {
       incomes,
       funds,
       budgetCategories,
+      unbudgetedCategories,
       summary: {
         plannedIncome: configuredIncome,
         receivedIncome,
@@ -148,7 +148,8 @@ export async function GET() {
         emergencyProgress,
         debtPayment,
         debtBurden,
-        freeAfterLeisure: Math.max(0, availableVariable - monthlyLeisure),
+        freeAfterLeisure: hasLeisureTarget ? Math.max(0, availableVariable - monthlyLeisure) : availableVariable,
+        hasLeisureTarget,
         dataCoverage,
         recommendation,
       },
