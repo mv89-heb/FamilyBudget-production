@@ -23,7 +23,7 @@ async function extractPdfTextLocally(file: File, onProgress: (message: string) =
       const page = await pdf.getPage(pageNumber); const viewport = page.getViewport({ scale: 2 });
       const canvas = document.createElement("canvas"); canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
       const context = canvas.getContext("2d", { willReadFrequently: true }); if (!context) throw new Error("הדפדפן לא אפשר יצירת משטח OCR");
-      await page.render({ canvasContext: context, viewport }).promise;
+      await page.render({ canvasContext: context, canvas, viewport }).promise;
       const result = await worker.recognize(canvas); chunks.push(`--- PAGE ${pageNumber} ---\n${result.data.text}`);
       canvas.width = 1; canvas.height = 1; page.cleanup();
     }
