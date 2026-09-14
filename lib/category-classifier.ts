@@ -25,7 +25,7 @@ export function classifyTransactionPresentation(categoryName: string | null | un
   };
 
   if (/(ישראכרט|חיוב כרטיסי אשראי|כרטיסי אשראי)/i.test(text)) {
-    return { ...fallback, name: "חיובי כרטיסי אשראי", reason: "חיוב חודשי של כרטיס אשראי; פירוט הרכישות נמצא בנפרד", isCreditCardPayment: true, isEssential: true };
+    return { ...fallback, name: "חיובי כרטיסי אשראי", reason: "חיוב חודשי של כרטיס אשראי; פירוט הרכישות נמצא בנפרד", isCreditCardPayment: true, isEssential: false };
   }
   if (/(בנק יהב\s*-?\s*אשראי|בנק יהב אשראי|מימון ישיר)/i.test(text)) {
     return { ...fallback, name: "תשלומי חוב", reason: "זוהה כתשלום הלוואה/חוב לפי פרטי התנועה", isDebt: true, isEssential: true };
@@ -37,7 +37,7 @@ export function classifyTransactionPresentation(categoryName: string | null | un
     return { ...fallback, name: "חיסכון ופקדונות", reason: "העברה לחיסכון אינה צריכה להופיע כהוצאה צרכנית", isSavings: true, isEssential: false };
   }
   if (/(כלל השתלמות|קרן השתלמות|פנסיה|גמל)/i.test(text)) {
-    return { ...fallback, name: "חיסכון פנסיוני", reason: "הפקדה לחיסכון/חיסכון פנסיוני", isSavings: true, isEssential: true };
+    return { ...fallback, name: "חיסכון פנסיוני", reason: "הפקדה לחיסכון/חיסכון פנסיוני", isSavings: true, isEssential: false };
   }
   if (/(הראל בטוח|הראל ביטוח|ביטוח)/i.test(text)) return { ...fallback, name: "ביטוחים", reason: "זוהה כתשלום ביטוח", isEssential: true };
   if (/(עיריית בית שמש|ארנונה)/i.test(text)) return { ...fallback, name: "ארנונה", reason: "זוהה כתשלום לרשות מקומית", isEssential: true };
