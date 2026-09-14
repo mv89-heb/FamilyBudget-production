@@ -17,9 +17,11 @@ const GEMINI_MODELS = [process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "
 const rowSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), amount: z.number().finite().positive().max(999999999), type: z.enum(["INCOME", "EXPENSE"]), categoryName: z.string().trim().min(1).max(60), paymentMethodName: z.string().trim().max(80).nullable().optional(), note: z.string().trim().max(500).nullable().optional() });
 const responseSchema = z.object({ rows: z.array(rowSchema).max(GEMINI_CHUNK_ROWS) });
 type GeminiRow = z.infer<typeof rowSchema>;
-type HeaderMap = { date?: number; amount?: number; type?: number; category?: number; paymentMethod?: number; note?: number; description?: number; debit?: number; credit?: number };
-type ClassifiedKind = "STANDARD" | "TRANSFER" | "CASH_WITHDRAWAL" | "LOAN_PRINCIPAL";
+type ImportSource = "BANK" | "CREDIT_CARD";
+type ClassifiedKind = "STANDARD" | "TRANSFER" | "CASH_WITHDRAWAL" | "LOAN_PRINCIPAL" | "REFUND";
 type ClassifiedRow = GeminiRow & { kind: ClassifiedKind };
+type HeaderMap = { date?: number; amount?: number; type?: number; category?: number; paymentMethod?: number; note?: number; description?: number; debit?: number; credit?: number };
+
 type ImportIdentity = { date: string; type: string; note?: string | null; paymentMethodName?: string | null };
 
 function normalizeHeader(value: unknown) { return String(value ?? "").trim().toLocaleLowerCase("he").replace(/[\s_\-./]+/g, " "); }
@@ -58,10 +60,12 @@ function localNormalize(rawRows: unknown[][]): GeminiRow[] | null {
   }
   return rows;
 }
-function classifyImportedRow(row: GeminiRow): ClassifiedRow {
+function isRefundText(row: GeminiRow) { const text = [row.categoryName, row.note ?? "", row.paymentMethodName ?? ""].join(" ").toLocaleLowerCase("he"); return /(refund|credit|זיכוי|החזר|ביטול עסקה|זיכוי עסקה)/i.test(text); }
+function classifyImportedRow(row: GeminiRow, source: ImportSource): ClassifiedRow {
   const text = [row.categoryName, row.note ?? "", row.paymentMethodName ?? ""].join(" ").trim().toLocaleLowerCase("he");
   const contains = (...terms: string[]) => terms.some((term) => text.includes(term));
-  let categoryName = row.categoryName.trim() || "אחר"; let kind: ClassifiedKind = "STANDARD";
+  if (source === "CREDIT_CARD") return { ...row, categoryName: row.categoryName.trim() || "אחר", kind: isRefundText(row) || row.type === "INCOME" ? "REFUND" : "STANDARD" };
+  let categoryName = row.categoryName.trim() || "אחר"; let kind: ClassifiedKind = isRefundText(row) && row.type === "EXPENSE" ? "REFUND" : "STANDARD";
   if (contains("החזר שיק", "שגיאה בהקלדת פרטי חשבון")) return { ...row, categoryName: "תיקונים חשבונאיים", kind: "TRANSFER" };
   if (contains("משיכה מבאנקט", "משיכת מזומן", "משיכה כספית")) return { ...row, categoryName: "משיכת מזומן", kind: "CASH_WITHDRAWAL" };
   if (contains("העברה/", "ב.הופועלים-ביט/", "משיכה לחשבון", "ביט/")) return { ...row, categoryName: "העברות כספיות", kind: "TRANSFER" };
@@ -109,28 +113,32 @@ async function requestGemini(model: string, rows: unknown[][]) {
 }
 async function analyzeChunk(rows: unknown[][]) { let lastError: unknown; for (const model of GEMINI_MODELS) for (let attempt = 0; attempt <= GEMINI_RETRIES; attempt++) { try { return await requestGemini(model, rows); } catch (error) { lastError = error; if (error instanceof Error && ["GEMINI_NOT_CONFIGURED", "GEMINI_AUTH_FAILED", "GEMINI_EMPTY_RESPONSE", "GEMINI_INVALID_RESPONSE"].includes(error.message)) throw error; if (!isRetryable(error) || attempt === GEMINI_RETRIES) break; await sleep(750 * (attempt + 1)); } } throw lastError instanceof Error ? lastError : new Error("GEMINI_REQUEST_FAILED"); }
 async function analyzeWithGemini(rawRows: unknown[][]) { if (!rawRows.length) return [] as GeminiRow[]; const headers = rawRows[0], dataRows = rawRows.slice(1), results: GeminiRow[] = []; for (let index = 0; index < dataRows.length; index += GEMINI_CHUNK_ROWS) results.push(...await analyzeChunk([headers, ...dataRows.slice(index, index + GEMINI_CHUNK_ROWS)])); return results.slice(0, MAX_ROWS); }
-function fingerprint(row: ClassifiedRow) { return createHash("sha256").update(JSON.stringify({ date: row.date, amount: row.amount.toFixed(2), type: row.type, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" })).digest("hex"); }
-function legacyKey(row: ImportIdentity & { amount: number }) { return JSON.stringify({ date: row.date, amount: row.amount.toFixed(2), type: row.type, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" }); }
-function reimportKey(row: ImportIdentity) { return JSON.stringify({ date: row.date, type: row.type, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" }); }
+function fingerprint(row: ClassifiedRow) { return createHash("sha256").update(JSON.stringify({ source: "BANK", date: row.date, amount: row.amount.toFixed(2), type: row.type, kind: row.kind, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" })).digest("hex"); }
+function creditCardType(row: ClassifiedRow) { return row.kind === "REFUND" || row.type === "INCOME" ? "REFUND" as const : "CHARGE" as const; }
+function creditCardFingerprint(row: ClassifiedRow) { return createHash("sha256").update(JSON.stringify({ source: "CREDIT_CARD", date: row.date, type: creditCardType(row), amount: row.amount.toFixed(2), merchant: (row.note || row.categoryName).trim().toLocaleLowerCase("he"), payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" })).digest("hex"); }
+function identityKey(row: ImportIdentity) { return JSON.stringify({ date: row.date, type: row.type, note: row.note?.trim() || "", payment: row.paymentMethodName?.trim().toLocaleLowerCase("he") || "" }); }
+function legacyKey(row: ImportIdentity & { amount: number }) { return JSON.stringify({ ...JSON.parse(identityKey(row)), amount: row.amount.toFixed(2) }); }
 function extractSheetRows(workbook: XLSX.WorkBook) { const sheets: unknown[][][] = []; let total = 0; for (const sheetName of workbook.SheetNames) { const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: null, raw: true }); const nonEmpty = rows.filter((row) => Array.isArray(row) && row.some((value) => value !== null && String(value).trim() !== "")); if (nonEmpty.length >= 2) { const limited = nonEmpty.slice(0, MAX_ROWS - total + 1); sheets.push(limited); total += Math.max(0, limited.length - 1); } if (total >= MAX_ROWS) break; } return sheets; }
 
 export async function POST(req: Request) {
   let userId: string | undefined; let importId: string | undefined;
   try {
     const user = await requireUser(); userId = user.id; const form = await req.formData(); const file = form.get("file");
+    const source: ImportSource = form.get("source") === "CREDIT_CARD" ? "CREDIT_CARD" : "BANK";
     if (!(file instanceof File)) return NextResponse.json({ error: "יש להעלות קובץ Excel" }, { status: 400 });
     if (file.size > MAX_BYTES) return NextResponse.json({ error: "הקובץ גדול מדי (מקסימום 10MB)" }, { status: 413 });
     if (!/\.(xlsx|xls)$/i.test(file.name)) return NextResponse.json({ error: "נתמך רק קובץ XLSX או XLS" }, { status: 415 });
-    const buffer = Buffer.from(await file.arrayBuffer()); const fileHash = createHash("sha256").update(buffer).digest("hex");
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const fileHash = createHash("sha256").update(`${source}:`).update(buffer).digest("hex");
     const existingImport = await prisma.importJob.findFirst({ where: { userId: user.id, fileHash }, select: { id: true, status: true, rowsImported: true, rowsUpdated: true, rowsSkipped: true } });
-    if (existingImport?.status === "COMPLETED") return NextResponse.json({ success: true, importId: existingImport.id, fileName: file.name, duplicate: true, alreadyProcessed: true, rowsImported: existingImport.rowsImported, rowsUpdated: existingImport.rowsUpdated, rowsSkipped: existingImport.rowsSkipped });
+    if (existingImport?.status === "COMPLETED") return NextResponse.json({ success: true, importId: existingImport.id, fileName: file.name, source, duplicate: true, alreadyProcessed: true, rowsImported: existingImport.rowsImported, rowsUpdated: existingImport.rowsUpdated, rowsSkipped: existingImport.rowsSkipped });
     if (existingImport?.status === "PROCESSING") return NextResponse.json({ error: "הקובץ הזה כבר נמצא בעיבוד. אין צורך להעלות אותו שוב." }, { status: 409 });
     if (existingImport?.status === "FAILED") {
       const claimed = await prisma.importJob.updateMany({ where: { id: existingImport.id, userId: user.id, status: "FAILED" }, data: { status: "PROCESSING", rowsDetected: 0, rowsAnalyzed: 0, rowsImported: 0, rowsUpdated: 0, rowsSkipped: 0, categoriesCreated: 0, paymentMethodsCreated: 0, errorMessage: null, completedAt: null, fileName: file.name } });
       if (claimed.count !== 1) return NextResponse.json({ error: "הקובץ כבר נמצא בעיבוד. נסה שוב בעוד רגע." }, { status: 409 });
       importId = existingImport.id;
     } else {
-      const job = await prisma.importJob.create({ data: { userId: user.id, fileName: file.name, fileHash, status: "PROCESSING" } }); importId = job.id;
+      const job = await prisma.importJob.create({ data: { userId: user.id, fileName: `${source}: ${file.name}`, fileHash, status: "PROCESSING" } }); importId = job.id;
     }
     const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: true }); const sheets = extractSheetRows(workbook); const detectedRows = sheets.reduce((sum, rows) => sum + Math.max(0, rows.length - 1), 0); if (!detectedRows) throw new Error("EMPTY_SPREADSHEET");
     await prisma.importJob.update({ where: { id: importId }, data: { rowsDetected: detectedRows } });
@@ -138,55 +146,56 @@ export async function POST(req: Request) {
     for (const sheet of sheets) { const local = localNormalize(sheet); if (local && local.length > 0) localResults.push(...local); else ambiguousSheets.push(sheet); }
     let importedRows = localResults; let analysisMode: "local" | "gemini" = "local";
     if (ambiguousSheets.length) { analysisMode = "gemini"; for (const sheet of ambiguousSheets) importedRows.push(...await analyzeWithGemini(sheet)); }
-    const validRows = importedRows.filter((row) => rowSchema.safeParse(row).success); const classifiedRows = validRows.map(classifyImportedRow);
-    const uniqueRows = Array.from(new Map(classifiedRows.map((row) => [fingerprint(row), row])).values());
+    const validRows = importedRows.filter((row) => rowSchema.safeParse(row).success); const classifiedRows = validRows.map((row) => classifyImportedRow(row, source));
+    const uniqueRows = Array.from(new Map(classifiedRows.map((row) => [(source === "BANK" ? fingerprint(row) : creditCardFingerprint(row)), row])).values());
     await prisma.importJob.update({ where: { id: importId }, data: { rowsAnalyzed: importedRows.length, rowsSkipped: Math.max(0, importedRows.length - uniqueRows.length) } });
     if (!uniqueRows.length) throw new Error("NO_VALID_ROWS");
+
+    if (source === "CREDIT_CARD") {
+      const fingerprints = uniqueRows.map(creditCardFingerprint);
+      const existing = await prisma.creditCardTransaction.findMany({ where: { userId: user.id, fingerprint: { in: fingerprints } }, select: { id: true, fingerprint: true } });
+      const existingByFingerprint = new Map(existing.map((row) => [row.fingerprint, row.id]));
+      const minDate = new Date(`${uniqueRows.reduce((min, row) => row.date < min ? row.date : min, uniqueRows[0].date)}T00:00:00.000Z`);
+      const maxDate = new Date(`${uniqueRows.reduce((max, row) => row.date > max ? row.date : max, uniqueRows[0].date)}T00:00:00.000Z`);
+      const candidates = await prisma.creditCardTransaction.findMany({ where: { userId: user.id, purchaseDate: { gte: minDate, lte: maxDate } }, select: { id: true, purchaseDate: true, amount: true, type: true, note: true, merchant: true, paymentMethod: { select: { nickname: true } } }, orderBy: { createdAt: "asc" } });
+      const byIdentity = new Map<string, string[]>();
+      for (const row of candidates) { const key = identityKey({ date: row.purchaseDate.toISOString().slice(0, 10), type: row.type, note: row.note || row.merchant, paymentMethodName: row.paymentMethod?.nickname ?? null }); const ids = byIdentity.get(key) ?? []; ids.push(row.id); byIdentity.set(key, ids); }
+      const reimportMatches = new Map<string, string>(); const claimed = new Set(existingByFingerprint.values());
+      for (const row of uniqueRows) { const fp = creditCardFingerprint(row); if (existingByFingerprint.has(fp)) continue; const type = creditCardType(row); const key = identityKey({ date: row.date, type, note: row.note || row.categoryName, paymentMethodName: row.paymentMethodName }); const ids = (byIdentity.get(key) ?? []).filter((id) => !claimed.has(id)); if (ids.length === 1) { reimportMatches.set(fp, ids[0]); claimed.add(ids[0]); } }
+      const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map((category) => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category]));
+      const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id } }); const methodMap = new Map(methods.map((method) => [method.nickname.trim().toLocaleLowerCase("he"), method]));
+      let createdCategories = 0; let createdPaymentMethods = 0; let updatedRows = 0; let createdRows = 0;
+      await prisma.$transaction(async (tx) => {
+        for (const row of uniqueRows) {
+          const categoryName = row.categoryName.trim() || "אחר"; const categoryKey = `EXPENSE:${categoryName.toLocaleLowerCase("he")}`; let category = categoryMap.get(categoryKey);
+          if (!category) { category = await tx.category.create({ data: { userId: user.id, name: categoryName, type: "EXPENSE" } }); categoryMap.set(categoryKey, category); createdCategories++; }
+          let paymentMethodId: string | null = null; const methodName = row.paymentMethodName?.trim();
+          if (methodName) { const key = methodName.toLocaleLowerCase("he"); let method = methodMap.get(key); if (!method) { method = await tx.paymentMethod.create({ data: { userId: user.id, nickname: methodName, type: "CARD" } }); methodMap.set(key, method); createdPaymentMethods++; } paymentMethodId = method.id; }
+          const merchant = row.note?.trim() || row.categoryName.trim() || "עסקת אשראי"; const type = creditCardType(row); const kind = type === "REFUND" ? "REFUND" as const : "PURCHASE" as const; const fp = creditCardFingerprint(row); const data = { type, kind, amount: row.amount, purchaseDate: new Date(`${row.date}T00:00:00.000Z`), postingDate: new Date(`${row.date}T00:00:00.000Z`), merchant, categoryId: category.id, paymentMethodId, note: row.note?.trim() || null, fingerprint: fp };
+          const existingId = existingByFingerprint.get(fp) ?? reimportMatches.get(fp); if (existingId) { await tx.creditCardTransaction.update({ where: { id: existingId }, data }); updatedRows++; } else { await tx.creditCardTransaction.create({ data: { ...data, userId: user.id } }); createdRows++; }
+        }
+      });
+      await prisma.importJob.update({ where: { id: importId }, data: { status: "COMPLETED", rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, detectedRows - createdRows - updatedRows), categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods, completedAt: new Date() } });
+      return NextResponse.json({ success: true, importId, fileName: file.name, source, analysisMode, rowsDetected: detectedRows, rowsAnalyzed: importedRows.length, rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, detectedRows - createdRows - updatedRows), categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods });
+    }
+
     const fingerprints = uniqueRows.map(fingerprint);
     const existing = await prisma.transaction.findMany({ where: { userId: user.id, fingerprint: { in: fingerprints } }, select: { id: true, fingerprint: true } });
     const existingByFingerprint = new Map(existing.filter((row): row is { id: string; fingerprint: string } => Boolean(row.fingerprint)).map((row) => [row.fingerprint, row.id]));
-    const minDate = new Date(`${uniqueRows.reduce((min, row) => row.date < min ? row.date : min, uniqueRows[0].date)}T00:00:00.000Z`);
-    const maxDate = new Date(`${uniqueRows.reduce((max, row) => row.date > max ? row.date : max, uniqueRows[0].date)}T00:00:00.000Z`);
+    const minDate = new Date(`${uniqueRows.reduce((min, row) => row.date < min ? row.date : min, uniqueRows[0].date)}T00:00:00.000Z`); const maxDate = new Date(`${uniqueRows.reduce((max, row) => row.date > max ? row.date : max, uniqueRows[0].date)}T00:00:00.000Z`);
     const legacyTransactions = await prisma.transaction.findMany({ where: { userId: user.id, fingerprint: null, transactionDate: { gte: minDate, lte: maxDate } }, select: { id: true, transactionDate: true, amount: true, type: true, note: true, paymentMethod: { select: { nickname: true } }, createdAt: true }, orderBy: { createdAt: "asc" } });
-    const legacyByKey = new Map<string, string[]>();
-    for (const transaction of legacyTransactions) {
-      const key = legacyKey({ date: transaction.transactionDate.toISOString().slice(0, 10), amount: Number(transaction.amount), type: transaction.type, note: transaction.note, paymentMethodName: transaction.paymentMethod?.nickname ?? null });
-      const ids = legacyByKey.get(key) ?? []; ids.push(transaction.id); legacyByKey.set(key, ids);
-    }
+    const legacyByKey = new Map<string, string[]>(); for (const transaction of legacyTransactions) { const key = legacyKey({ date: transaction.transactionDate.toISOString().slice(0, 10), amount: Number(transaction.amount), type: transaction.type, note: transaction.note, paymentMethodName: transaction.paymentMethod?.nickname ?? null }); const ids = legacyByKey.get(key) ?? []; ids.push(transaction.id); legacyByKey.set(key, ids); }
     const candidates = await prisma.transaction.findMany({ where: { userId: user.id, transactionDate: { gte: minDate, lte: maxDate } }, select: { id: true, transactionDate: true, amount: true, type: true, note: true, fingerprint: true, paymentMethod: { select: { nickname: true } } }, orderBy: { createdAt: "asc" } });
-    const reimportByKey = new Map<string, string[]>();
-    for (const transaction of candidates) {
-      const key = reimportKey({ date: transaction.transactionDate.toISOString().slice(0, 10), type: transaction.type, note: transaction.note, paymentMethodName: transaction.paymentMethod?.nickname ?? null });
-      const ids = reimportByKey.get(key) ?? []; ids.push(transaction.id); reimportByKey.set(key, ids);
-    }
+    const reimportByKey = new Map<string, string[]>(); for (const transaction of candidates) { const key = identityKey({ date: transaction.transactionDate.toISOString().slice(0, 10), type: transaction.type, note: transaction.note, paymentMethodName: transaction.paymentMethod?.nickname ?? null }); const ids = reimportByKey.get(key) ?? []; ids.push(transaction.id); reimportByKey.set(key, ids); }
     const legacyMatches = new Map<string, string>(); const reimportMatches = new Map<string, string>(); const claimedExistingIds = new Set<string>(existingByFingerprint.values());
-    for (const row of uniqueRows) {
-      const fp = fingerprint(row); if (existingByFingerprint.has(fp)) continue;
-      const identityCandidates = (reimportByKey.get(reimportKey(row)) ?? []).filter((id) => !claimedExistingIds.has(id));
-      if (identityCandidates.length === 1) { reimportMatches.set(fp, identityCandidates[0]); claimedExistingIds.add(identityCandidates[0]); continue; }
-      const candidatesForLegacy = (legacyByKey.get(legacyKey(row)) ?? []).filter((id) => !claimedExistingIds.has(id));
-      const legacyId = candidatesForLegacy.length === 1 ? candidatesForLegacy[0] : undefined;
-      if (legacyId) { legacyMatches.set(fp, legacyId); claimedExistingIds.add(legacyId); }
-    }
+    for (const row of uniqueRows) { const fp = fingerprint(row); if (existingByFingerprint.has(fp)) continue; const identityCandidates = (reimportByKey.get(identityKey(row)) ?? []).filter((id) => !claimedExistingIds.has(id)); if (identityCandidates.length === 1) { reimportMatches.set(fp, identityCandidates[0]); claimedExistingIds.add(identityCandidates[0]); continue; } const candidatesForLegacy = (legacyByKey.get(legacyKey({ ...row, amount: row.amount })) ?? []).filter((id) => !claimedExistingIds.has(id)); const legacyId = candidatesForLegacy.length === 1 ? candidatesForLegacy[0] : undefined; if (legacyId) { legacyMatches.set(fp, legacyId); claimedExistingIds.add(legacyId); } }
     const rowsToCreate = uniqueRows.filter((row) => !existingByFingerprint.has(fingerprint(row)) && !reimportMatches.has(fingerprint(row)) && !legacyMatches.has(fingerprint(row)));
-    const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map((category) => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category]));
-    const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id } }); const methodMap = new Map(methods.map((method) => [method.nickname.trim().toLocaleLowerCase("he"), method]));
+    const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map((category) => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category])); const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id } }); const methodMap = new Map(methods.map((method) => [method.nickname.trim().toLocaleLowerCase("he"), method]));
     let createdCategories = 0; let createdPaymentMethods = 0; let updatedRows = 0;
-    await prisma.$transaction(async (tx) => {
-      for (const row of uniqueRows) {
-        const categoryKey = `${row.type}:${row.categoryName.trim().toLocaleLowerCase("he")}`; let category = categoryMap.get(categoryKey);
-        if (!category) { category = await tx.category.create({ data: { userId: user.id, name: row.categoryName.trim(), type: row.type } }); categoryMap.set(categoryKey, category); createdCategories++; }
-        let paymentMethodId: string | null = null; const methodName = row.paymentMethodName?.trim();
-        if (methodName) { const key = methodName.toLocaleLowerCase("he"); let method = methodMap.get(key); if (!method) { method = await tx.paymentMethod.create({ data: { userId: user.id, nickname: methodName, type: "OTHER" } }); methodMap.set(key, method); createdPaymentMethods++; } paymentMethodId = method.id; }
-        const data = { type: row.type, kind: row.kind, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null, fingerprint: fingerprint(row) };
-        const existingId = existingByFingerprint.get(fingerprint(row)) ?? reimportMatches.get(fingerprint(row)) ?? legacyMatches.get(fingerprint(row));
-        if (existingId) { await tx.transaction.update({ where: { id: existingId }, data }); updatedRows++; }
-        else { await tx.transaction.create({ data: { ...data, userId: user.id } }); }
-      }
-    });
+    await prisma.$transaction(async (tx) => { for (const row of uniqueRows) { const categoryKey = `${row.type}:${row.categoryName.trim().toLocaleLowerCase("he")}`; let category = categoryMap.get(categoryKey); if (!category) { category = await tx.category.create({ data: { userId: user.id, name: row.categoryName.trim(), type: row.type } }); categoryMap.set(categoryKey, category); createdCategories++; } let paymentMethodId: string | null = null; const methodName = row.paymentMethodName?.trim(); if (methodName) { const key = methodName.toLocaleLowerCase("he"); let method = methodMap.get(key); if (!method) { method = await tx.paymentMethod.create({ data: { userId: user.id, nickname: methodName, type: "OTHER" } }); methodMap.set(key, method); createdPaymentMethods++; } paymentMethodId = method.id; } const fp = fingerprint(row); const data = { type: row.type, kind: row.kind, amount: row.amount, transactionDate: new Date(`${row.date}T00:00:00.000Z`), categoryId: category.id, paymentMethodId, note: row.note?.trim() || null, fingerprint: fp }; const existingId = existingByFingerprint.get(fp) ?? reimportMatches.get(fp) ?? legacyMatches.get(fp); if (existingId) { await tx.transaction.update({ where: { id: existingId }, data }); updatedRows++; } else { await tx.transaction.create({ data: { ...data, userId: user.id } }); } } });
     const createdRows = rowsToCreate.length;
     await prisma.importJob.update({ where: { id: importId }, data: { status: "COMPLETED", rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, detectedRows - createdRows - updatedRows), categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods, completedAt: new Date() } });
-    return NextResponse.json({ success: true, importId, fileName: file.name, analysisMode, rowsDetected: detectedRows, rowsAnalyzed: importedRows.length, rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, detectedRows - createdRows - updatedRows), categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods });
+    return NextResponse.json({ success: true, importId, fileName: file.name, source, analysisMode, rowsDetected: detectedRows, rowsAnalyzed: importedRows.length, rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, detectedRows - createdRows - updatedRows), categoriesCreated: createdCategories, paymentMethodsCreated: createdPaymentMethods });
   } catch (error) {
     if (importId && userId) await prisma.importJob.update({ where: { id: importId }, data: { status: "FAILED", errorMessage: error instanceof Error ? error.message.slice(0, 500) : "IMPORT_FAILED" } }).catch(() => undefined);
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
