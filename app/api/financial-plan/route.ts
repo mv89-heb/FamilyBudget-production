@@ -71,7 +71,6 @@ export async function GET() {
     const hardActual = sum(expenseTransactions.filter(isHard).map(signedExpenseAmount));
     const variableActual = sum(expenseTransactions.filter(t => !isHard(t)).map(signedExpenseAmount));
     const unbudgetedActual = sum(expenseTransactions.filter(t => !budgetCategoryIds.has(t.categoryId ?? "")).map(signedExpenseAmount));
-    const uncategorizedActual = sum(expenseTransactions.filter(t => presentedName(t).name === "אחר" || /^(לא סווג|ללא קטגוריה)$/i.test(presentedName(t).name)).map(signedExpenseAmount));
     const leisureActualWeek = sum(expenseTransactions.filter(t => t.transactionDate && t.transactionDate >= currentWeek && t.type === "EXPENSE" && leisurePattern.test(presentedName(t).name)).map(t => Math.abs(t.amount)));
     const sinkingMonthly = sum(funds.map(f => f.monthlyContribution));
     const savings = toNumber(plan.monthlySavingsTarget);
@@ -83,9 +82,9 @@ export async function GET() {
     const monthElapsedDays = Math.max(1, Math.ceil(elapsedMs / 86400000));
     const daysInMonth = Math.max(1, Math.round((nextMonth.getTime() - month.getTime()) / 86400000));
 
-    // Emergency savings should cover the household's essential monthly cash commitments,
-    // not just the tiny subset currently marked as HARD. Debt minimums are included,
-    // while credit-card detail is deliberately not added to cash flow.
+    // Emergency savings cover essential monthly cash commitments, not merely categories marked HARD.
+    // Credit-card summary payments are deliberately excluded from the essential estimate because they
+    // contain both essential and discretionary purchases; the separate card-detail source can refine this later.
     const essentialActual = sum(expenseTransactions.filter(t => {
       const view = presentedName(t);
       return view.isEssential && !view.isSavings;
@@ -141,7 +140,7 @@ export async function GET() {
       plannedIncome: configuredIncome, receivedIncome, projectedIncome, netIncome: projectedIncome, configuredIncome, netIncomeActual: receivedIncome,
       actualExpenses, fixedCommitments: hardActual, hardActual, hardBudgetLimit, sinkingMonthly, savings,
       availableVariable, actualAvailable: availableVariable, variableActual, variableBudgetLimit, variableRemaining,
-      uncategorizedActual, unbudgetedActual, projectedVariable: variableActual > 0 ? (variableActual / monthElapsedDays) * daysInMonth : 0,
+      uncategorizedActual: unbudgetedActual, unbudgetedActual, projectedVariable: variableActual > 0 ? (variableActual / monthElapsedDays) * daysInMonth : 0,
       weeklyLeisure: toNumber(plan.weeklyLeisureBudget), monthlyLeisure, leisureActualMonth: 0, leisureActualWeek,
       essentialMonthly, essentialCashCommitments, emergencyMin, emergencyMax, emergencyProgress, debtPayment, debtPrincipal, debtBurden,
       freeAfterLeisure: hasLeisureTarget ? availableVariable - monthlyLeisure : availableVariable, hasLeisureTarget, dataCoverage, recommendation,
