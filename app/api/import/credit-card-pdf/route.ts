@@ -28,7 +28,18 @@ function sanitizePdfText(input: string) {
   return text.replace(/\n{3,}/g, "\n\n").slice(0, MAX_TEXT_CHARS).trim();
 }
 
-function fingerprint(row: PdfRow) { return createHash("sha256").update(JSON.stringify({ source: "CREDIT_CARD_PDF", date: row.date, type: row.type, amount: row.amount.toFixed(2), merchant: row.merchant.trim().toLocaleLowerCase("he"), note: row.note?.trim() || "", installmentNumber: row.installmentNumber ?? null, installmentTotal: row.installmentTotal ?? null })).digest("hex"); }
+function fingerprint(row: PdfRow) {
+  // Keep this identity independent of the import format so Excel/PDF imports dedupe each other.
+  return createHash("sha256").update(JSON.stringify({
+    date: row.date,
+    type: row.type,
+    amount: row.amount.toFixed(2),
+    merchant: row.merchant.trim().toLocaleLowerCase("he").replace(/\s+/g, " "),
+    note: row.note?.trim() || "",
+    installmentNumber: row.installmentNumber ?? null,
+    installmentTotal: row.installmentTotal ?? null,
+  })).digest("hex");
+}
 
 async function requestGemini(text: string) {
   const key = process.env.GEMINI_API_KEY?.trim();
