@@ -103,3 +103,5 @@ export async function POST(req: Request) {
     console.error("Credit card PDF import failed", error); return NextResponse.json({ error: "לא ניתן לייבא את PDF האשראי" }, { status: 400 });
   }
 }
+
+
