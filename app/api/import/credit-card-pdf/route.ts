@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
-// @ts-expect-error pdf-parse v1 has no bundled TypeScript declaration.
 import pdfParse from "pdf-parse";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -29,7 +28,6 @@ function sanitizePdfText(input: string) {
 }
 
 function fingerprint(row: PdfRow) {
-  // Keep this identity independent of the import format so Excel/PDF imports dedupe each other.
   return createHash("sha256").update(JSON.stringify({
     date: row.date,
     type: row.type,
@@ -65,11 +63,13 @@ export async function POST(req: Request) {
     if (!(file instanceof File)) return NextResponse.json({ error: "יש להעלות קובץ PDF" }, { status: 400 });
     if (file.size > MAX_BYTES) return NextResponse.json({ error: "הקובץ גדול מדי (מקסימום 10MB)" }, { status: 413 });
     if (!/\.pdf$/i.test(file.name)) return NextResponse.json({ error: "נתמך רק קובץ PDF" }, { status: 415 });
-    const buffer = Buffer.from(await file.arrayBuffer()); const fileHash = createHash("sha256").update("CREDIT_CARD_PDF:").update(buffer).digest("hex");
+    const buffer = Buffer.from(await file.arrayBuffer());
+    if (buffer.length < 5 || buffer.subarray(0, 5).toString("ascii") !== "%PDF-") return NextResponse.json({ error: "הקובץ אינו PDF תקין" }, { status: 415 });
+    const fileHash = createHash("sha256").update("CREDIT_CARD_PDF:").update(buffer).digest("hex");
     const existing = await prisma.importJob.findFirst({ where: { userId: user.id, fileHash }, select: { id: true, status: true, rowsImported: true, rowsUpdated: true, rowsSkipped: true } });
     if (existing?.status === "COMPLETED") return NextResponse.json({ success: true, duplicate: true, alreadyProcessed: true, rowsImported: existing.rowsImported, rowsUpdated: existing.rowsUpdated, rowsSkipped: existing.rowsSkipped });
     if (existing?.status === "PROCESSING") return NextResponse.json({ error: "הקובץ הזה כבר נמצא בעיבוד." }, { status: 409 });
-    const job = await prisma.importJob.create({ data: { userId: user.id, fileName: `CREDIT_CARD_PDF: ${file.name}`, fileHash, status: "PROCESSING" } });
+    const job = await prisma.importJob.create({ data: { userId: user.id, fileName: "CREDIT_CARD_PDF", fileHash, status: "PROCESSING" } });
     try {
       const parsed = await pdfParse(buffer); const sanitized = sanitizePdfText(parsed.text || ""); if (!sanitized) throw new Error("EMPTY_PDF_TEXT");
       const rows = await requestGemini(sanitized); const uniqueRows = Array.from(new Map(rows.map(row => [fingerprint(row), row])).values()); if (!uniqueRows.length) throw new Error("NO_VALID_ROWS");
