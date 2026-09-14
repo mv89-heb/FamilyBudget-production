@@ -1,2 +1,11 @@
 import FinancialPlan from "@/components/FinancialPlan";
-export default function PlanPage() { return <FinancialPlan />; }
+import FinancialPlanInsights from "@/components/FinancialPlanInsights";
+
+export default function PlanPage() {
+  return (
+    <>
+      <FinancialPlan />
+      <FinancialPlanInsights />
+    </>
+  );
+}
