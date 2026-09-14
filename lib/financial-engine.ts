@@ -49,9 +49,19 @@ export function calculateOperatingIncome(transactions: readonly FinancialTransac
   return total;
 }
 
-export function calculateDebtPayments(transactions: readonly FinancialTransaction[]): number {
+/**
+ * Calculates required debt cash payments. The optional predicate lets the presentation/classification
+ * layer recognize legacy STANDARD rows as debt without changing their persisted accounting kind.
+ * This never promotes a row to LOAN_PRINCIPAL: only explicit principal rows are principal.
+ */
+export function calculateDebtPayments(
+  transactions: readonly FinancialTransaction[],
+  isAdditionalDebt?: (transaction: FinancialTransaction) => boolean,
+): number {
   let total = 0;
-  for (const transaction of transactions) if (isLoanPrincipal(transaction) || isLoanInterest(transaction)) total += Math.abs(transaction.amount);
+  for (const transaction of transactions) {
+    if (isLoanPrincipal(transaction) || isLoanInterest(transaction) || isAdditionalDebt?.(transaction)) total += Math.abs(transaction.amount);
+  }
   return total;
 }
 
