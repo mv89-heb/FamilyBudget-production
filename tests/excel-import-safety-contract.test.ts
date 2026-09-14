@@ -12,7 +12,7 @@ test("Excel import safety contract", () => {
     "ImportSource",
     "CREDIT_CARD",
     "creditCardIdentityMatches",
-    "CreditCardTransaction",
+    "creditCardTransaction",
     "fingerprint",
     "fileHash",
     "ImportJob",
