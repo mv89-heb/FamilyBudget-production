@@ -13,9 +13,21 @@ test("Excel import safety contract", () => {
     "legacyKey",
     "legacyTransactions",
     "legacyMatches",
-    "reimportKey",
+    "identityKey",
     "reimportMatches",
     "identityCandidates.length === 1",
     "fingerprint: null",
-  ]) assert.ok(source.includes(contract));
+    "ImportSource",
+    "CREDIT_CARD",
+    "CreditCardTransaction",
+    "creditCardFingerprint",
+    "creditCardType",
+    "kind = type === \"REFUND\" ? \"REFUND\" : \"PURCHASE\"",
+    "fileHash = createHash(\"sha256\").update(`${source}:`).update(buffer).digest(\"hex\")",
+  ]) assert.ok(source.includes(contract), `missing import safety contract: ${contract}`);
+});
+
+test("Import UI requires an explicit source", () => {
+  const source = readFileSync(join(process.cwd(), "app/import/page.tsx"), "utf8");
+  for (const contract of ["BANK", "CREDIT_CARD", "fd.append(\"source\", source)", "דוח בנק", "פירוט כרטיס אשראי"]) assert.ok(source.includes(contract), `missing UI source contract: ${contract}`);
 });
