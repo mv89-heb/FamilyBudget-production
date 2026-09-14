@@ -1,0 +1,10 @@
+"use client";
+import { useState } from "react";
+type Insight = { source: "gemini" | "rules"; situation: string; action: string; allocations: { name: string; amount: number; reason: string }[]; warnings: string[]; confidence: "high" | "medium" | "low" };
+const money = (v: number) => `${Number(v).toLocaleString("he-IL", { maximumFractionDigits: 0 })} ₪`;
+const confidence = { high: "גבוהה", medium: "בינונית", low: "נמוכה" };
+export default function FinancialPlanInsights() {
+ const [insight,setInsight]=useState<Insight|null>(null); const [loading,setLoading]=useState(false); const [error,setError]=useState("");
+ async function analyze(){setLoading(true);setError("");try{const r=await fetch("/api/financial-plan/insights",{method:"POST",cache:"no-store"});const t=await r.text();const b=t?JSON.parse(t):null;if(!r.ok)throw new Error(b?.error||"לא ניתן לנתח את התוכנית");setInsight(b)}catch(e){setError(e instanceof Error?e.message:"לא ניתן לנתח את התוכנית")}finally{setLoading(false)}}
+ return <section className="recommendation-card" dir="rtl" aria-live="polite"><div className="card-header"><div><p className="eyebrow">AI · קבלת החלטות</p><h2>ניתוח התוכנית המשפחתית</h2><p>המערכת שולחת ל-Gemini רק נתונים כספיים מצטברים.</p></div><button className="primary-button" onClick={analyze} disabled={loading}>{loading?"מנתח...":"נתח את התוכנית"}</button></div>{error&&<div className="error-banner">{error}</div>}{insight&&<div className="stack"><div className="content-grid"><div><strong>מה המצב</strong><p>{insight.situation}</p></div><div><strong>מה כדאי לעשות</strong><p>{insight.action}</p></div></div><small>רמת ביטחון: {confidence[insight.confidence]} · {insight.source==="gemini"?"Gemini":"כללי בטיחות"}</small>{insight.allocations.length>0&&<div className="stack">{insight.allocations.map((a,i)=><div className="list-row" key={`${a.name}-${i}`}><div><strong>{a.name}</strong><small>{a.reason}</small></div><strong>{money(a.amount)}</strong></div>)}</div>}{insight.warnings.length>0&&<div className="warning-list">{insight.warnings.map((w,i)=><p key={i}>⚠ {w}</p>)}</div>}</div>}</section>;
+}
