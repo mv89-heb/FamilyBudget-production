@@ -1,0 +1,45 @@
+/* FamilyBudget UX layer: calmer hierarchy, fewer visual distractions, better small-screen behavior. */
+.app-content { padding-top: 28px; }
+.sidebar-settings { margin-top: 10px; }
+.nav-list { gap: 7px; }
+.nav-item { min-height: 46px; }
+
+/* Keep the primary action visually dominant without making every control loud. */
+.card-elevated { box-shadow: 0 5px 22px rgba(15,23,42,.035); }
+.primary-button { box-shadow: 0 4px 12px rgba(79,70,229,.12); }
+.primary-button:hover:not(:disabled) { box-shadow: 0 6px 16px rgba(79,70,229,.16); }
+
+/* Progressive disclosure affordance. */
+details > summary { -webkit-tap-highlight-color: transparent; }
+details > summary:focus-visible { outline: 2px solid #6366f1; outline-offset: 3px; border-radius: 10px; }
+
+/* Reduce motion for people who prefer a calmer interface. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+@media (max-width: 900px) {
+  .app-shell { display: block; }
+  .app-sidebar { position: sticky; top: 0; width: 100%; height: auto; min-height: 0; flex: none; }
+  .sidebar-inner { height: auto; padding: 10px 12px; }
+  .brand { padding: 2px 4px 10px; }
+  .user-card, .sidebar-spacer, .sidebar-footer { display: none; }
+  .nav-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  .nav-item { min-height: 44px; justify-content: center; gap: 6px; padding: 0 6px; font-size: 11px; }
+  .nav-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-settings { position: absolute; top: 10px; left: 10px; width: 42px; padding: 0; }
+  .sidebar-settings span { display: none; }
+  .app-content { padding: 22px 16px 40px; }
+  .page-shell { padding: 22px 16px 40px; }
+}
+
+@media (max-width: 640px) {
+  .page-header { align-items: flex-start; flex-direction: column; }
+  .page-title { font-size: 28px; }
+  .page-subtitle { max-width: 42rem; }
+  .decision-metrics, .overview-progress-grid { grid-template-columns: 1fr; }
+  .decision-callout { align-items: flex-start; flex-direction: column; }
+  .decision-callout-side { width: 100%; min-width: 0; padding: 12px 0 0; border-right: 0; border-top: 1px solid #dbeafe; }
+  .budget-summary { min-width: 95px; }
+  .mini-progress { width: 58px; }
+}
