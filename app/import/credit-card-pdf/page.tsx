@@ -11,7 +11,7 @@ async function readResponse(response: Response) { const text = await response.te
 async function extractPdfTextLocally(file: File, onProgress: (message: string) => void) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = pdfjs.getDocument({ data, useWorkerFetch: false, isEvalSupported: false });
+  const loadingTask = pdfjs.getDocument({ data, useWorkerFetch: false });
   const pdf = await loadingTask.promise;
   if (pdf.numPages > MAX_OCR_PAGES) throw new Error(`ה-PDF מכיל ${pdf.numPages} עמודים. למען יציבות הדפדפן, ניתן לבצע OCR עד ${MAX_OCR_PAGES} עמודים בכל ייבוא.`);
   const { createWorker } = await import("tesseract.js");
@@ -20,15 +20,11 @@ async function extractPdfTextLocally(file: File, onProgress: (message: string) =
     const chunks: string[] = [];
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       onProgress(`OCR מקומי: עמוד ${pageNumber} מתוך ${pdf.numPages}`);
-      const page = await pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 2 });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) throw new Error("הדפדפן לא אפשר יצירת משטח OCR");
+      const page = await pdf.getPage(pageNumber); const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas"); canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d", { willReadFrequently: true }); if (!context) throw new Error("הדפדפן לא אפשר יצירת משטח OCR");
       await page.render({ canvasContext: context, viewport }).promise;
-      const result = await worker.recognize(canvas);
-      chunks.push(`--- PAGE ${pageNumber} ---\n${result.data.text}`);
+      const result = await worker.recognize(canvas); chunks.push(`--- PAGE ${pageNumber} ---\n${result.data.text}`);
       canvas.width = 1; canvas.height = 1; page.cleanup();
     }
     return chunks.join("\n\n");
@@ -48,13 +44,10 @@ export default function CreditCardPdfImportPage() {
       if (response.ok) { setResult(data as unknown as Result); return; }
       if (response.status !== 422 || typeof data.error !== "string" || !data.error.includes("סרוק")) throw new Error(typeof data.error === "string" ? data.error : "הייבוא נכשל");
       setProgress("ה-PDF הוא סריקה. מבצע OCR מקומי בדפדפן — הקובץ לא נשלח לשרת לצורך OCR.");
-      const ocrText = await extractPdfTextLocally(file, setProgress);
-      if (!ocrText.trim()) throw new Error("לא הצלחנו לזהות טקסט מהסריקה.");
+      const ocrText = await extractPdfTextLocally(file, setProgress); if (!ocrText.trim()) throw new Error("לא הצלחנו לזהות טקסט מהסריקה.");
       setProgress("ה-OCR הסתיים. שולח לשרת רק טקסט גולמי לצורך ניקוי נוסף וניתוח Gemini…");
       const ocrResponse = await fetch("/api/import/credit-card-pdf/text", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ text: ocrText }), cache: "no-store" });
-      const ocrData = await readResponse(ocrResponse);
-      if (!ocrResponse.ok) throw new Error(typeof ocrData.error === "string" ? ocrData.error : "ייבוא ה-OCR נכשל");
-      setResult(ocrData as unknown as Result);
+      const ocrData = await readResponse(ocrResponse); if (!ocrResponse.ok) throw new Error(typeof ocrData.error === "string" ? ocrData.error : "ייבוא ה-OCR נכשל"); setResult(ocrData as unknown as Result);
     } catch (e) { setError(e instanceof Error ? e.message : "אירעה שגיאה"); } finally { setBusy(false); setProgress(""); }
   };
   return <div className="space-y-6">
