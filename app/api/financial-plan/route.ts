@@ -48,8 +48,6 @@ export async function GET() {
     const configuredIncome = sum(incomes.map(i => i.monthlyAmount));
     const projectedIncome = receivedIncome > 0 ? receivedIncome : configuredIncome;
     const actualExpenses = Math.max(0, calculateNetExpense(normalized));
-    const debtPayment = calculateDebtPayments(normalized);
-    const debtPrincipal = sum(normalized.filter(t => t.kind === "LOAN_PRINCIPAL").map(t => Math.abs(t.amount)));
     const expenseTransactions = normalized.filter(t => (t.type === "EXPENSE" && ["STANDARD", "LOAN_INTEREST"].includes(t.kind)) || (t.type === "INCOME" && t.kind === "REFUND"));
 
     const presentation = new Map<string, ReturnType<typeof classifyTransactionPresentation>>();
@@ -59,6 +57,15 @@ export async function GET() {
       if (!value) { value = classifyTransactionPresentation(t.categoryName, t.note); presentation.set(key, value); }
       return value;
     };
+
+    // Legacy bank imports can contain known debt payments persisted as STANDARD.
+    // They remain STANDARD in the accounting ledger, but count toward debt burden and
+    // emergency cash commitments. Explicit LOAN_PRINCIPAL remains the only principal kind.
+    const debtPayment = calculateDebtPayments(normalized, (t) => {
+      const view = presentedName(t);
+      return t.kind === "STANDARD" && t.type === "EXPENSE" && view.isDebt;
+    });
+    const debtPrincipal = sum(normalized.filter(t => t.kind === "LOAN_PRINCIPAL").map(t => Math.abs(t.amount)));
 
     const hardBudgetIds = new Set(budgets.filter(b => b.class === "HARD").map(b => b.categoryId));
     const variableBudgetIds = new Set(budgets.filter(b => b.class === "VARIABLE").map(b => b.categoryId));
@@ -83,11 +90,12 @@ export async function GET() {
     const daysInMonth = Math.max(1, Math.round((nextMonth.getTime() - month.getTime()) / 86400000));
 
     // Emergency savings cover essential monthly cash commitments, not merely categories marked HARD.
+    // Debt is already included in debtPayment, so exclude debt rows here to prevent double counting.
     // Credit-card summary payments are deliberately excluded from the essential estimate because they
     // contain both essential and discretionary purchases; the separate card-detail source can refine this later.
     const essentialActual = sum(expenseTransactions.filter(t => {
       const view = presentedName(t);
-      return view.isEssential && !view.isSavings;
+      return view.isEssential && !view.isSavings && !view.isDebt && !view.isCreditCardPayment;
     }).map(signedExpenseAmount));
     const essentialCashCommitments = essentialActual + debtPayment;
     const essentialMonthly = Math.max(essentialCashCommitments, hardBudgetLimit);
