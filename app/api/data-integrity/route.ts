@@ -20,6 +20,12 @@ function monthRange(month: string) {
 type DuplicateFingerprint = { fingerprint: string; count: number };
 type LiabilityMismatch = { id: string; amount: Prisma.Decimal; category: string; note: string | null };
 
+type FlowRow = {
+  type: string;
+  kind: string;
+  _sum: { amount: Prisma.Decimal | null };
+};
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -66,10 +72,24 @@ export async function GET() {
       }),
     ]);
 
-    const income = flow.filter((row) => row.type === "INCOME" && !["TRANSFER", "LOAN_RECEIVED"].includes(row.kind)).reduce((sum, row) => sum + Number(row._sum.amount || 0), 0);
-    const expenses = flow.filter((row) => row.type === "EXPENSE" && ["STANDARD", "LOAN_INTEREST"].includes(row.kind)).reduce((sum, row) => sum + Number(row._sum.amount || 0), 0);
-    const loans = flow.filter((row) => row.kind === "LOAN_PRINCIPAL").reduce((sum, row) => sum + Number(row._sum.amount || 0), 0);
-    const savingsAndTransfers = flow.filter((row) => ["TRANSFER", "CASH_WITHDRAWAL"].includes(row.kind)).reduce((sum, row) => sum + Number(row._sum.amount || 0), 0);
+    const typedFlow = flow as FlowRow[];
+    const amount = (row: FlowRow) => Number(row._sum.amount || 0);
+    const income = typedFlow
+      .filter((row) => row.type === "INCOME" && row.kind === "STANDARD")
+      .reduce((sum, row) => sum + amount(row), 0);
+    const expenses = typedFlow
+      .filter((row) => row.type === "EXPENSE" && ["STANDARD", "LOAN_INTEREST"].includes(row.kind))
+      .reduce((sum, row) => sum + amount(row), 0);
+    const refunds = typedFlow
+      .filter((row) => row.kind === "REFUND")
+      .reduce((sum, row) => sum + amount(row), 0);
+    const netExpenses = expenses - refunds;
+    const loans = typedFlow
+      .filter((row) => row.kind === "LOAN_PRINCIPAL")
+      .reduce((sum, row) => sum + amount(row), 0);
+    const savingsAndTransfers = typedFlow
+      .filter((row) => ["TRANSFER", "CASH_WITHDRAWAL"].includes(row.kind))
+      .reduce((sum, row) => sum + amount(row), 0);
 
     return NextResponse.json({
       month,
@@ -81,10 +101,12 @@ export async function GET() {
       },
       monthlyFlow: {
         income,
-        expenses,
+        grossExpenses: expenses,
+        refunds,
+        expenses: netExpenses,
         loans,
         savingsAndTransfers,
-        netFlow: income - expenses - loans - savingsAndTransfers,
+        netFlow: income - netExpenses - loans - savingsAndTransfers,
         closingBalanceCheck: "UNAVAILABLE_WITHOUT_ACCOUNT_BALANCE_SOURCE",
       },
       healthy: Number(orphans[0]?.count ?? 0) === 0 && duplicateFingerprints.length === 0 && liabilityMismatches.length === 0,
