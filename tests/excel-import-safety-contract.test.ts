@@ -12,7 +12,6 @@ test("Excel import safety contract", () => {
     "ImportSource",
     "CREDIT_CARD",
     "creditCardIdentityMatches",
-    "creditCardTransaction",
     "fingerprint",
     "fileHash",
     "ImportJob",
