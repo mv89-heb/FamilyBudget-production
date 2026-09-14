@@ -1,2 +1,5 @@
-import Budgets from "@/components/Budgets";
-export default function BudgetsPage(){return <Budgets/>;}
+import { redirect } from "next/navigation";
+
+export default function BudgetsLegacyPage() {
+  redirect("/plan");
+}
