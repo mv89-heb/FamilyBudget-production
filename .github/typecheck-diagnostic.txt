@@ -1,0 +1,32 @@
+
+> familybudget@1.0.0 typecheck
+> tsc --noEmit
+
+lib/gemini-classifier.ts(51,34): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,35): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,39): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,44): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,47): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,51): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,56): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,58): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,143): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,144): error TS1005: ',' expected.
+lib/gemini-classifier.ts(51,148): error TS1002: Unterminated string literal.
+lib/gemini-classifier.ts(52,3): error TS1005: ':' expected.
+lib/gemini-classifier.ts(52,10): error TS1005: ',' expected.
+lib/gemini-classifier.ts(52,44): error TS1005: ';' expected.
+lib/import/gemini-classifier.ts(77,34): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,35): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,39): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,44): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,47): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,51): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,56): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(77,58): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(78,135): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(78,136): error TS1005: ',' expected.
+lib/import/gemini-classifier.ts(78,140): error TS1002: Unterminated string literal.
+lib/import/gemini-classifier.ts(79,3): error TS1005: ':' expected.
+lib/import/gemini-classifier.ts(228,1): error TS1005: '}' expected.
+exit=2
