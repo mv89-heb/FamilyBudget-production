@@ -1,15 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { monthSchema, paymentMethodSchema, transactionSchema } from "../lib/validation";
+import { monthSchema, normalizeMonth, paymentMethodSchema, transactionSchema } from "../lib/validation";
 
 test("accepts a valid month", () => {
   assert.equal(monthSchema.parse("2026-09"), "2026-09");
+});
+
+test("normalizes full date values to the dashboard month", () => {
+  assert.equal(normalizeMonth("2026-09-15"), "2026-09");
+  assert.equal(normalizeMonth("2026-09-15T00:00:00.000Z"), "2026-09");
 });
 
 test("rejects invalid months", () => {
   assert.throws(() => monthSchema.parse("2026-13"));
   assert.throws(() => monthSchema.parse("2026-00"));
   assert.throws(() => monthSchema.parse("26-09"));
+  assert.throws(() => normalizeMonth("2026-13"), /חודש לא תקין/);
+  assert.throws(() => normalizeMonth(""), /חודש לא תקין/);
 });
 
 test("accepts exactly four digits for masked payment methods", () => {

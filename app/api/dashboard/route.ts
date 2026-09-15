@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { monthSchema } from "@/lib/validation";
+import { normalizeMonth } from "@/lib/validation";
 import { getIsraelMonth, monthRange } from "@/lib/financial-engine";
 import { getFinancialSourceOfTruth, recentTransactionPresentation } from "@/lib/financial-source";
 
 export async function GET(req: Request) {
   try {
     const user = await requireUser();
-    const param = new URL(req.url).searchParams.get("month");
-    const month = monthSchema.parse(param || getIsraelMonth());
+    const rawMonth = new URL(req.url).searchParams.get("month");
+    const month = normalizeMonth(rawMonth || getIsraelMonth());
     const range = monthRange(month);
     const [financial, recentRows] = await Promise.all([
       getFinancialSourceOfTruth(user.id, month),
@@ -53,6 +53,8 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
-    return NextResponse.json({ error: "חודש לא תקין" }, { status: 400 });
+    if (error instanceof Error && error.message === "חודש לא תקין") return NextResponse.json({ error: "חודש לא תקין" }, { status: 400 });
+    console.error("Dashboard load failed", error);
+    return NextResponse.json({ error: "לא ניתן לטעון את הסקירה" }, { status: 500 });
   }
 }
