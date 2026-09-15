@@ -38,7 +38,7 @@ const MODELS = Array.from(new Set([
   process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
   "gemini-2.5-flash-lite"
 ]));
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 8_000;
 const BATCH_SIZE = 40;
 
 function textOf(row: ClassificationInput) {
@@ -57,7 +57,7 @@ function deterministic(row: ClassificationInput, source: ImportSource): Transact
     return { index: -1, categoryName: "משיכת מזומן", type: "EXPENSE", kind: "CASH_WITHDRAWAL", confidence: 1, reason: "זוהתה משיכת מזומן" };
   }
   if (has("ישראכרט", "כרטיסי אשראי", "חיוב כרטיס", "credit card payment")) {
-    return { index: -1, categoryName: "חיובי כרטיסי אשראי", type: "EXPENSE", kind: "TRANSFER", confidence: 1, reason: "חיוב כרטיס אשראי מסווג כהעברה" };
+    return { index: -1, categoryName: "חיובי כרטיסי אשראי", type: "EXPENSE", kind: "TRANSFER", confidence: 1, reason: "זוהה חיוב כרטיס אשראי" };
   }
   if (has("העברה/", "ב.הופועלים-ביט/", "משיכה לחשבון", "ביט/", "bank transfer", "transfer")) {
     return { index: -1, categoryName: "העברות כספיות", type: row.type, kind: "TRANSFER", confidence: 0.99, reason: "זוהתה העברה כספית" };
@@ -67,6 +67,18 @@ function deterministic(row: ClassificationInput, source: ImportSource): Transact
   }
   if (has("בנק יהב-אשראי", "בנק יהב אשראי", "מימון ישיר", "הלוואה")) {
     return { index: -1, categoryName: "חובות והלוואות", type: "EXPENSE", kind: "LOAN_PRINCIPAL", confidence: 0.97, reason: "זוהה תשלום הלוואה" };
+  }
+  if (has("הפקדה לפקדון", "הפקדה לפיקדון", "הפקדה לפקדון/", "הפקדה לפיקדון/")) {
+    return { index: -1, categoryName: "חיסכון ופקדונות", type: "EXPENSE", kind: "TRANSFER", confidence: 0.99, reason: "זוהתה הפקדה לפיקדון" };
+  }
+  if (has("שיק", "check", "cheque")) {
+    return { index: -1, categoryName: "שיק", type: row.type, kind: "STANDARD", confidence: 0.99, reason: "זוהה תשלום באמצעות שיק" };
+  }
+  if (has("קיזוז מטח", "קיזוז מט"ח", "המרת מטח", "המרת מט"ח", "foreign exchange")) {
+    return { index: -1, categoryName: "עמלות והמרת מטבע", type: row.type, kind: "TRANSFER", confidence: 0.99, reason: "זוהתה תנועת מט"ח" };
+  }
+  if (has("כלל השתלמות", "כלל השתלמות כלל")) {
+    return { index: -1, categoryName: "חיסכון ופקדונות", type: "EXPENSE", kind: "TRANSFER", confidence: 0.95, reason: "זוהתה הפקדה לקרן השתלמות" };
   }
   if (has("החזר", "refund", "ביטול עסקה", "זיכוי עסקה")) {
     return { index: -1, categoryName: row.existingCategory?.trim() || "החזרים", type: row.type, kind: "REFUND", confidence: 0.98, reason: "זוהה החזר או ביטול עסקה" };
