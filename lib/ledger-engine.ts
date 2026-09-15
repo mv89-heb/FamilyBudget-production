@@ -40,6 +40,7 @@ export type BudgetStatus = {
   limit: number;
   spent: number;
   remaining: number;
+  overage: number;
   percent: number;
   progressPercent: number;
   overBudget: boolean;
@@ -153,6 +154,7 @@ export function calculateBudgetStatus(limitInput: unknown, spentInput: unknown):
   const limit = roundMoney(Math.max(0, toNumber(limitInput)));
   const spent = roundMoney(Math.max(0, toNumber(spentInput)));
   const remaining = roundMoney(limit - spent);
+  const overage = roundMoney(Math.max(0, spent - limit));
   const percent = limit > 0 ? roundMoney((spent / limit) * 100) : 0;
   const status = spent > limit ? "OVER" : percent >= 80 ? "WARNING" : "GOOD";
 
@@ -160,6 +162,7 @@ export function calculateBudgetStatus(limitInput: unknown, spentInput: unknown):
     limit,
     spent,
     remaining,
+    overage,
     percent,
     progressPercent: Math.min(100, Math.max(0, percent)),
     overBudget: spent > limit,
