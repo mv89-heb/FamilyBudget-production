@@ -30,8 +30,18 @@ export async function GET(req: Request) {
       }),
     ]);
 
+    const hasTransactions = financial.transactionCount > 0;
+    const hasBudgets = financial.budgets.length > 0;
+    const hasEmergencySource = financial.emergency.target > 0 || financial.emergency.current > 0;
+
     return NextResponse.json({
       month,
+      transactionCount: financial.transactionCount,
+      dataQuality: {
+        ledger: hasTransactions ? "HAS_DATA" : "NO_DATA",
+        budget: hasBudgets ? "HAS_DATA" : "NO_DATA",
+        emergency: hasEmergencySource ? "HAS_DATA" : "NO_DATA",
+      },
       income: financial.ledger.income,
       expense: financial.ledger.operatingExpense,
       balance: financial.ledger.netCashFlow,
