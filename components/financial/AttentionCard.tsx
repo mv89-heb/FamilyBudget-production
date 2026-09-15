@@ -1,4 +1,9 @@
-import type { AttentionItem } from "../../lib/financial-source";
+export type AttentionItem = {
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  title: string;
+  description: string;
+  action?: { label: string; href: string };
+};
 
 type AttentionCardProps = {
   item: AttentionItem;
