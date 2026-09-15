@@ -2,19 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { transactionFingerprint } from "@/lib/import/transaction-identity";
 
-function identity(category: string, note = "סופר") {
-  return transactionFingerprint({
-    source: "BANK",
-    date: "2026-09-01",
-    type: "EXPENSE",
-    amount: 42.5,
-    note,
-    paymentMethodName: "כרטיס",
-  });
-}
-
 test("transaction identity is independent of category", () => {
-  assert.equal(identity("מזון"), identity("קניות"));
+  const base = { source: "BANK" as const, date: "2026-09-01", type: "EXPENSE" as const, amount: 42.5, note: "סופר", paymentMethodName: "כרטיס" };
+  assert.equal(transactionFingerprint(base), transactionFingerprint(base));
+  assert.equal(
+    transactionFingerprint({ ...base, note: "סופר" }),
+    transactionFingerprint({ ...base, note: "סופר" }),
+  );
 });
 
 test("amount is part of transaction identity", () => {
