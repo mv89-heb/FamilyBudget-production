@@ -31,6 +31,11 @@ export type CategoryAmount = {
   amount: number;
 };
 
+export type CategoryBreakdown = CategoryAmount & {
+  sharePercent: number;
+  startPercent: number;
+};
+
 export type BudgetStatus = {
   limit: number;
   spent: number;
@@ -132,6 +137,18 @@ export function calculateCategoryAmounts(transactions: readonly LedgerTransactio
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 }
 
+export function calculateCategoryBreakdown(transactions: readonly LedgerTransaction[]): CategoryBreakdown[] {
+  const categories = calculateCategoryAmounts(transactions).map((row) => ({ ...row, amount: Math.max(0, row.amount) }));
+  const total = categories.reduce((sum, row) => sum + row.amount, 0);
+  let cursor = 0;
+  return categories.map((row) => {
+    const sharePercent = total > 0 ? roundMoney((row.amount / total) * 100) : 0;
+    const result = { ...row, sharePercent, startPercent: roundMoney(cursor) };
+    cursor += sharePercent;
+    return result;
+  });
+}
+
 export function calculateBudgetStatus(limitInput: unknown, spentInput: unknown): BudgetStatus {
   const limit = roundMoney(Math.max(0, toNumber(limitInput)));
   const spent = roundMoney(Math.max(0, toNumber(spentInput)));
@@ -228,7 +245,7 @@ export function calculateSmartInsights(
       title: `ההוצאה המובילה: ${dominantCategory.categoryName}`,
       text: change !== null && change > 15
         ? `הקטגוריה גבוהה ב-${Math.round(change)}% מהממוצע ההיסטורי הזמין. כדאי לבדוק מה השתנה.`
-        : `הקטגוריה מהווה את מוקד ההוצאה המרכזי החודש, עם ${formatMoney(dominantCategory.amount)}.` ,
+        : `הקטגוריה מהווה את מוקד ההוצאה המרכזי החודש, עם ${formatMoney(dominantCategory.amount)} ₪.`,
     });
   }
 
