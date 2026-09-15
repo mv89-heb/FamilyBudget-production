@@ -50,17 +50,21 @@ test("budget status is deterministic and bounded for UI progress", () => {
     limit: 1000,
     spent: 1250,
     remaining: -250,
+    overage: 250,
     percent: 125,
     progressPercent: 100,
     overBudget: true,
+    status: "OVER",
   });
   assert.deepEqual(calculateBudgetStatus(0, 25), {
     limit: 0,
     spent: 25,
     remaining: -25,
+    overage: 25,
     percent: 0,
     progressPercent: 0,
     overBudget: true,
+    status: "OVER",
   });
 });
 
