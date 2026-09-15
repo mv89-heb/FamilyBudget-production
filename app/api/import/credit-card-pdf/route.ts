@@ -11,7 +11,8 @@ import { creditCardIdentityDateRange, creditCardIdentityMatches } from "@/lib/im
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const MAX_BYTES = 10 * 1024 * 1024;
-const GEMINI_TIMEOUT_MS = 20_000;
+const GEMINI_TIMEOUT_MS = 15_000;
+const GEMINI_MAX_PARALLEL = 3;
 const GEMINI_MODELS = [process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "gemini-2.5-flash-lite"].filter((model, index, models) => model && models.indexOf(model) === index);
 const CHUNK_SIZE = 35_000;
 const CHUNK_OVERLAP = 2_000;
@@ -101,7 +102,17 @@ export async function POST(req: Request) {
       const pageTexts = text.split(/\f+/).map(page => page.trim()).filter(Boolean); const pages = pageTexts.length > 1 ? pageTexts : chunkText(text);
       const evidence = dateMonthEvidence(pages);
       const expectedMonths = evidence.filter(item => item.occurrences >= 2).map(item => item.month);
-      let allRows: PdfRow[] = []; for (const page of pages) allRows.push(...await requestGemini(page));
+      const geminiFailures: string[] = [];
+      const allRows: PdfRow[] = [];
+      for (let start = 0; start < pages.length; start += GEMINI_MAX_PARALLEL) {
+        const batch = pages.slice(start, start + GEMINI_MAX_PARALLEL);
+        const results = await Promise.allSettled(batch.map(page => requestGemini(page)));
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") allRows.push(...result.value);
+          else geminiFailures.push(result.reason instanceof Error ? result.reason.message : `GEMINI_PAGE_${start + index + 1}_FAILED`);
+        });
+      }
+      if (!allRows.length) throw new Error(geminiFailures[0] || "GEMINI_REQUEST_FAILED");
       const unique = new Map<string, PdfRow>(); for (const row of allRows) unique.set(fingerprint(row), row);
       let presentMonths = rowsByMonth([...unique.values()]); const missingMonths = expectedMonths.filter(month => !presentMonths.has(month));
       for (const month of missingMonths) {
@@ -112,7 +123,11 @@ export async function POST(req: Request) {
         }
       }
       const rows = [...unique.values()]; presentMonths = rowsByMonth(rows);
-      const missingAfterRecovery = expectedMonths.filter(month => !presentMonths.has(month)); if (missingAfterRecovery.length) throw new Error(`MISSING_MONTHS:${missingAfterRecovery.join(",")}`);
+      const missingAfterRecovery = expectedMonths.filter(month => !presentMonths.has(month));
+      const warnings = [
+        ...(geminiFailures.length ? [`GEMINI_PARTIAL:${[...new Set(geminiFailures)].slice(0, 3).join(",")}`] : []),
+        ...(missingAfterRecovery.length ? [`MISSING_MONTHS:${missingAfterRecovery.join(",")}`] : []),
+      ];
       const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id }, select: { id: true, nickname: true, last4: true } });
       const categoryCache = new Map<string, string>();
       const resolveCategoryId = async (name: string) => { const normalized = normalizeCategoryName(name || "אחר"); const cached = categoryCache.get(normalized); if (cached) return cached; const category = await prisma.category.upsert({ where: { userId_name_type: { userId: user.id, name: normalized, type: "EXPENSE" } }, create: { userId: user.id, name: normalized, type: "EXPENSE" }, update: {} }); categoryCache.set(normalized, category.id); return category.id; };
@@ -128,8 +143,8 @@ export async function POST(req: Request) {
         if (candidates.length === 1) { await prisma.creditCardTransaction.update({ where: { id: candidates[0].id }, data }); rowsUpdated++; }
         else { try { await prisma.creditCardTransaction.create({ data: { userId: user.id, ...data } }); rowsImported++; } catch (error) { if ((error as { code?: string }).code === "P2002") rowsSkipped++; else throw error; } }
       }
-      await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, errorMessage: null, completedAt: new Date() } });
-      return NextResponse.json({ success: true, rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, monthsDetected: [...presentMonths].sort(), missingMonths: [] });
+      await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, errorMessage: warnings.length ? warnings.join("|") : null, completedAt: new Date() } });
+      return NextResponse.json({ success: true, partial: warnings.length > 0, warnings, rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, monthsDetected: [...presentMonths].sort(), missingMonths: missingAfterRecovery });
     } catch (error) { await prisma.importJob.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: error instanceof Error ? error.message : "IMPORT_FAILED" } }); throw error; }
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "ייבוא נכשל" }, { status: 500 }); }
 }
