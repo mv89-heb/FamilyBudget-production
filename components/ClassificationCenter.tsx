@@ -14,7 +14,6 @@ export default function ClassificationCenter() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [resolvedLocally, setResolvedLocally] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -28,7 +27,6 @@ export default function ClassificationCenter() {
     setCategories(data.categories);
     setSelected(data.transactions.map((row: Transaction) => row.id));
     setSuggestions([]);
-    setResolvedLocally(0);
   }
 
   useEffect(() => { load().catch((e) => setError(e instanceof Error ? e.message : "שגיאה בטעינה")); }, []);
@@ -36,8 +34,6 @@ export default function ClassificationCenter() {
   const byId = useMemo(() => new Map(transactions.map((row) => [row.id, row])), [transactions]);
   const total = transactions.reduce((sum, row) => sum + row.amount, 0);
   const suggestionById = useMemo(() => new Map(suggestions.map((item) => [item.transactionId, item])), [suggestions]);
-  const unresolvedCount = selected.filter((id) => !suggestionById.has(id)).length;
-  const geminiCount = Math.max(0, suggestions.length - resolvedLocally);
 
   async function askGemini() {
     if (!selected.length || busy) return;
@@ -47,7 +43,6 @@ export default function ClassificationCenter() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Gemini לא הצליח לסווג את התנועות");
       setSuggestions(data.suggestions.map((item: Suggestion) => ({ ...item, rememberRule: false })));
-      setResolvedLocally(data.resolvedLocally || 0);
       const localText = data.resolvedLocally ? ` ${data.resolvedLocally} סווגו כבר מקומית לפי כללים וזיהוי ודאי.` : "";
       const warningText = data.warning ? ` ${data.warning}` : "";
       setMessage(`נמצאו הצעות ל-${data.classified} מתוך ${data.requested} תנועות.${localText}${warningText}`);
@@ -78,11 +73,10 @@ export default function ClassificationCenter() {
       <div><div className="eyebrow"><Sparkles size={14} /> סיווג חכם</div><h1 className="page-title">מרכז הסיווג החכם</h1><p className="page-subtitle">המערכת בודקת קודם כל זיהוי ודאי וכללים ששמרת, ורק אחר כך משתמשת ב-Gemini. שום שינוי לא נשמר בלי אישור שלך.</p></div>
     </header>
 
-    <section className="grid gap-4 sm:grid-cols-4">
+    <section className="grid gap-4 sm:grid-cols-3">
       <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">דורש סיווג</div><div className="mt-2 text-3xl font-black text-slate-900">{transactions.length}</div><div className="mt-1 text-xs text-slate-500">{money(total)} · תנועות עם "אחר"</div></div>
-      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">זוהו מקומית</div><div className="mt-2 text-3xl font-black text-emerald-700">{resolvedLocally}</div><div className="mt-1 text-xs text-slate-500">ללא קריאת Gemini</div></div>
-      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">הצעות מ-Gemini</div><div className="mt-2 text-3xl font-black text-indigo-700">{geminiCount}</div><div className="mt-1 text-xs text-slate-500">רק לתנועות שלא נפתרו מקומית</div></div>
       <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">הצעות ביטחון גבוה</div><div className="mt-2 text-3xl font-black text-emerald-700">{highConfidence.length}</div><div className="mt-1 text-xs text-slate-500">{money(totalSuggested)} · ≥90% ביטחון</div></div>
+      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">קטגוריות זמינות</div><div className="mt-2 text-3xl font-black text-slate-900">{categories.length}</div><div className="mt-1 text-xs text-slate-500">Gemini רשאי לבחור רק מהן</div></div>
     </section>
 
     {error && <div role="alert" className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
@@ -92,9 +86,9 @@ export default function ClassificationCenter() {
       <section className="card-elevated overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-5 md:flex-row md:items-center md:justify-between">
           <div><h2 className="font-black text-slate-900">1. בחר תנועות לניתוח</h2><p className="mt-1 text-xs text-slate-500">נשלחים ל-Gemini רק תיאור, סכום ותאריך — לא מזהי חשבון. תנועות שניתן לסווג בבטחה מטופלות מקומית ללא קריאת API.</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" className="secondary-button" onClick={() => setSelected(transactions.map((row) => row.id))}>בחר הכול</button><button type="button" className="secondary-button" onClick={() => setSelected([])}>נקה</button><button type="button" className="primary-button inline-flex items-center gap-2" disabled={!selected.length || busy} onClick={askGemini}>{busy ? <Loader2 size={16} className="animate-spin" /> : <WandSparkles size={16} />} {busy ? "מנתח..." : unresolvedCount > 0 && suggestions.length > 0 ? `נתח ${unresolvedCount} תנועות שטרם סווגו` : `בדוק ${selected.length} תנועות`}</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className="secondary-button" onClick={() => setSelected(transactions.map((row) => row.id))}>בחר הכול</button><button type="button" className="secondary-button" onClick={() => setSelected([])}>נקה</button><button type="button" className="primary-button inline-flex items-center gap-2" disabled={!selected.length || busy} onClick={askGemini}>{busy ? <Loader2 size={16} className="animate-spin" /> : <WandSparkles size={16} />} {busy ? "מנתח..." : `נתח ${selected.length} תנועות`}</button></div>
         </div>
-        <div className="divide-y divide-slate-100">{transactions.map((row) => <label key={row.id} className="flex cursor-pointer items-center gap-3 p-4 transition hover:bg-slate-50"><input type="checkbox" checked={selected.includes(row.id)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-800">{row.note || "ללא תיאור"}</span><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{suggestionById.has(row.id) ? "הצעה מוכנה" : row.categoryName}</span></div><div className="mt-1 text-xs text-slate-500">{new Date(row.transactionDate).toLocaleDateString("he-IL")}</div></div><strong className="text-sm text-slate-900">{money(row.amount)}</strong></label>)}</div>
+        <div className="divide-y divide-slate-100">{transactions.map((row) => <label key={row.id} className="flex cursor-pointer items-center gap-3 p-4 transition hover:bg-slate-50"><input type="checkbox" checked={selected.includes(row.id)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-800">{row.note || "ללא תיאור"}</span><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{row.categoryName}</span></div><div className="mt-1 text-xs text-slate-500">{new Date(row.transactionDate).toLocaleDateString("he-IL")}</div></div><strong className="text-sm text-slate-900">{money(row.amount)}</strong></label>)}</div>
       </section>
 
       {suggestions.length > 0 && <section className="card-elevated overflow-hidden">
