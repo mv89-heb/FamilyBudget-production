@@ -65,11 +65,13 @@ export async function GET() {
     const debtPrincipal = sum(normalized.filter(t => t.kind === "LOAN_PRINCIPAL").map(t => Math.abs(t.amount)));
     const savingsActual = sum(expenseTransactions.filter(t => presentedName(t).isSavings).map(signedExpenseAmount));
 
-    // The plan must use the same presentation rules as the dashboard: debt, card settlements,
-    // and savings are cash-flow buckets, not current/operating consumption expenses.
+    // Keep the plan's operating-expense definition identical to the dashboard.
+    // Debt and savings are separate cash-flow buckets; credit-card settlements remain
+    // current expenses because the imported ledger does not necessarily contain the
+    // underlying card purchases as separate transactions.
     const operatingExpenseTransactions = expenseTransactions.filter(t => {
       const view = presentedName(t);
-      return !view.isDebt && !view.isCreditCardPayment && !view.isSavings;
+      return !view.isDebt && !view.isSavings;
     });
     const actualExpenses = sum(operatingExpenseTransactions.map(signedExpenseAmount));
 
@@ -87,8 +89,6 @@ export async function GET() {
     const savingsTarget = toNumber(plan.monthlySavingsTarget);
     const plannedSavings = Math.max(savingsActual, savingsTarget);
 
-    // Available-to-plan is reconciled to actual household cash flow. Savings targets and sinking-fund
-    // contributions are only additional planning reservations when they exceed what was already saved.
     const availableVariable = projectedIncome - actualExpenses - debtPayment - plannedSavings - sinkingMonthly;
     const monthlyLeisure = toNumber(plan.weeklyLeisureBudget) * 4.33;
     const debtBurden = projectedIncome > 0 ? debtPayment / projectedIncome : 0;
@@ -163,8 +163,8 @@ export async function PUT(req: Request) {
     const user = await requireUser();
     const input = planSchema.parse(await req.json());
     const plan = await prisma.financialPlan.upsert({ where: { userId: user.id }, create: { userId: user.id, ...input }, update: input });
-    return NextResponse.json(plan);
+    return NextResponse.json({ plan });
   } catch {
-    return NextResponse.json({ error: "נתוני התוכנית אינם תקינים" }, { status: 400 });
+    return NextResponse.json({ error: "לא ניתן לשמור את התוכנית המשפחתית" }, { status: 400 });
   }
 }
