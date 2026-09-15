@@ -14,14 +14,26 @@ const planSchema = z.object({
 
 const leisurePattern = /(בילוי|פנאי|מסעד|קפה|קולנוע|אטרקציה|בידור|יציאה|נופש|חופשה)/i;
 const hardExpensePattern = /(דיור|משכנתא|ארנונה|שכירות|חשמל|מים|גז|ביטוח|גן|מעון|חינוך|בית ספר|קייטנה|תינוק|הלווא|חוב|אשראי|מיסים)/i;
+
 function sectionForCategory(name: string): string {
-  if (/(דיור|משכנתא|ארנונה|שכירות|חשמל|מים|גז|ביטוח דירה)/i.test(name)) return "דיור";
+  if (/(דיור|משכנתא|ארנונה|שכירות|חשמל|מים|גז|ביטוח דירה|חשבונות)/i.test(name)) return "דיור וחשבונות";
   if (/(מזון|סופר|מכולת|מסעד|קפה|פנאי|בילוי|קולנוע|אטרקציה|בידור)/i.test(name)) return "מחיה ופנאי";
   if (/(תחבורה|דלק|רכב|מוסך|חניה|כביש)/i.test(name)) return "תחבורה";
   if (/(ילד|גן|מעון|חינוך|בית ספר|קייטנה|תינוק)/i.test(name)) return "ילדים";
   if (/(הלווא|חוב|אשראי|משכנתא)/i.test(name)) return "חובות";
   if (/(חיסכון|פקדון|פנסיוני)/i.test(name)) return "חיסכון";
   return "אחר";
+}
+
+function budgetGroupForCategory(name: string): string {
+  if (/(מזון|סופר|מכולת)/i.test(name)) return "מזון";
+  if (/(חשבונות|מים|חשמל|גז|ארנונה|שכירות|דיור|תקשורת|אינטרנט|טלפון)/i.test(name)) return "חשבונות";
+  if (/(דלק|תחבורה|רכב|מוסך|חניה|כביש)/i.test(name)) return "דלק";
+  if (/(ילד|גן|מעון|חינוך|בית ספר|קייטנה|תינוק)/i.test(name)) return "חינוך";
+  if (/(בריאות|רופא|תרופ|פארם|בית מרקחת)/i.test(name)) return "בריאות";
+  if (/(ביטוח|מיסים|מס|ארנונה)/i.test(name)) return "מיסים";
+  if (/(עמל|בנקאות|אחר)/i.test(name)) return "אחר";
+  return name;
 }
 
 export async function GET() {
@@ -65,10 +77,6 @@ export async function GET() {
     const debtPrincipal = sum(normalized.filter(t => t.kind === "LOAN_PRINCIPAL").map(t => Math.abs(t.amount)));
     const savingsActual = sum(expenseTransactions.filter(t => presentedName(t).isSavings).map(signedExpenseAmount));
 
-    // Keep the plan's operating-expense definition identical to the dashboard.
-    // Debt and savings are separate cash-flow buckets; credit-card settlements remain
-    // current expenses because the imported ledger does not necessarily contain the
-    // underlying card purchases as separate transactions.
     const operatingExpenseTransactions = expenseTransactions.filter(t => {
       const view = presentedName(t);
       return !view.isDebt && !view.isSavings;
@@ -78,12 +86,21 @@ export async function GET() {
     const hardBudgetIds = new Set(budgets.filter(b => b.class === "HARD").map(b => b.categoryId));
     const variableBudgetIds = new Set(budgets.filter(b => b.class === "VARIABLE").map(b => b.categoryId));
     const budgetCategoryIds = new Set(budgets.map(b => b.categoryId));
-    const hardBudgetLimit = sum(budgets.filter(b => b.class === "HARD").map(b => b.limit));
-    const variableBudgetLimit = sum(budgets.filter(b => b.class === "VARIABLE").map(b => b.limit));
-    const isHard = (t: FinancialTransaction) => hardBudgetIds.has(t.categoryId ?? "") || (!variableBudgetIds.has(t.categoryId ?? "") && hardExpensePattern.test(presentedName(t).name));
+    const budgetByGroup = new Map<string, { categoryId: string; name: string; class: "HARD" | "VARIABLE"; limit: number }>();
+    for (const budget of budgets) {
+      budgetByGroup.set(budgetGroupForCategory(budget.category.name), { categoryId: budget.categoryId, name: budget.category.name, class: budget.class, limit: toNumber(budget.limit) });
+    }
+    const hardBudgetLimit = sum(Array.from(budgetByGroup.values()).filter(b => b.class === "HARD").map(b => b.limit));
+    const variableBudgetLimit = sum(Array.from(budgetByGroup.values()).filter(b => b.class === "VARIABLE").map(b => b.limit));
+    const groupForTransaction = (t: FinancialTransaction) => budgetGroupForCategory(presentedName(t).name || t.categoryName || "אחר");
+    const isHard = (t: FinancialTransaction) => {
+      const group = groupForTransaction(t);
+      const budget = budgetByGroup.get(group);
+      return budget ? budget.class === "HARD" : (!variableBudgetIds.has(t.categoryId ?? "") && hardExpensePattern.test(presentedName(t).name));
+    };
     const hardActual = sum(operatingExpenseTransactions.filter(isHard).map(signedExpenseAmount));
     const variableActual = sum(operatingExpenseTransactions.filter(t => !isHard(t)).map(signedExpenseAmount));
-    const unbudgetedActual = sum(operatingExpenseTransactions.filter(t => !budgetCategoryIds.has(t.categoryId ?? "")).map(signedExpenseAmount));
+    const unbudgetedActual = sum(operatingExpenseTransactions.filter(t => !budgetByGroup.has(groupForTransaction(t))).map(signedExpenseAmount));
     const leisureActualWeek = sum(operatingExpenseTransactions.filter(t => t.transactionDate && t.transactionDate >= currentWeek && t.type === "EXPENSE" && leisurePattern.test(presentedName(t).name)).map(t => Math.abs(t.amount)));
     const sinkingMonthly = sum(funds.map(f => f.monthlyContribution));
     const savingsTarget = toNumber(plan.monthlySavingsTarget);
@@ -107,7 +124,7 @@ export async function GET() {
     const hasLeisureTarget = toNumber(plan.weeklyLeisureBudget) > 0;
 
     const recommendation = unbudgetedActual > 0
-      ? `יש ${Math.round(unbudgetedActual).toLocaleString("he-IL")} ₪ של הוצאות בלי מסגרת. הסכום עדיין נכלל בהוצאות בפועל; כדאי להגדיר מסגרות לסעיפים המרכזיים.`
+      ? `יש ${Math.round(unbudgetedActual).toLocaleString("he-IL")} ₪ של הוצאות בלי מסגרת. הסכום עדיין נכלל בהוצאות בפועל; כדאי לפרט את חיובי האשראי או להגדיר מסגרת לסעיף.`
       : availableVariable <= 0
         ? "אין כרגע כסף פנוי אחרי ההוצאות, החוב, החיסכון והקופות. לפני שמגדילים הוצאות כדאי לאזן את התוכנית."
         : debtBurden >= 0.4
@@ -120,16 +137,17 @@ export async function GET() {
 
     const budgetCategoriesMap = new Map<string, { categoryId: string; name: string; class: "HARD" | "VARIABLE"; section: string; limit: number; actual: number; remaining: number; percent: number }>();
     for (const budget of budgets) {
+      const group = budgetGroupForCategory(budget.category.name);
       const limit = toNumber(budget.limit);
-      const actual = sum(operatingExpenseTransactions.filter(t => t.categoryId === budget.categoryId).map(signedExpenseAmount));
-      budgetCategoriesMap.set(budget.categoryId, { categoryId: budget.categoryId, name: budget.category.name, class: budget.class, section: sectionForCategory(budget.category.name), limit, actual, remaining: limit - actual, percent: limit > 0 ? (actual / limit) * 100 : 0 });
+      const actual = sum(operatingExpenseTransactions.filter(t => groupForTransaction(t) === group).map(signedExpenseAmount));
+      budgetCategoriesMap.set(group, { categoryId: budget.categoryId, name: budget.category.name, class: budget.class, section: sectionForCategory(budget.category.name), limit, actual, remaining: limit - actual, percent: limit > 0 ? (actual / limit) * 100 : 0 });
     }
     const budgetCategories = Array.from(budgetCategoriesMap.values()).sort((a, b) => a.section.localeCompare(b.section, "he") || b.actual - a.actual || a.name.localeCompare(b.name, "he"));
 
     const unbudgetedByCategory = new Map<string, { categoryId: string; name: string; actual: number; reason: string | null }>();
     for (const transaction of operatingExpenseTransactions) {
-      const categoryId = transaction.categoryId ?? "uncategorized";
-      if (budgetCategoryIds.has(categoryId)) continue;
+      const group = groupForTransaction(transaction);
+      if (budgetByGroup.has(group)) continue;
       const view = presentedName(transaction);
       const current = unbudgetedByCategory.get(view.name);
       unbudgetedByCategory.set(view.name, { categoryId: view.name, name: view.name, actual: (current?.actual ?? 0) + signedExpenseAmount(transaction), reason: view.reason });
