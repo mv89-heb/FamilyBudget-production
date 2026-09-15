@@ -31,30 +31,61 @@ export async function GET(req: Request) {
       }),
       prisma.transaction.findMany({
         where: { userId: user.id, transactionDate: { gte: range.start, lt: range.end } },
-        select: { type: true, kind: true, amount: true, categoryId: true, category: { select: { name: true } }, note: true },
+        select: {
+          id: true,
+          type: true,
+          kind: true,
+          amount: true,
+          transactionDate: true,
+          categoryId: true,
+          category: { select: { name: true } },
+          note: true,
+          paymentMethod: { select: { nickname: true, last4: true } },
+        },
+        orderBy: [{ transactionDate: "desc" }, { id: "desc" }],
       }),
     ]);
 
     let actualDebtPayments = 0;
     let directSavings = 0;
     const categoryTotals = new Map<string, { categoryId: string | null; categoryName: string; amount: number }>();
+    const incomeDetails: Array<Record<string, unknown>> = [];
+    const expenseDetails: Array<Record<string, unknown>> = [];
+    const debtDetails: Array<Record<string, unknown>> = [];
+    const savingsDetails: Array<Record<string, unknown>> = [];
 
     for (const row of monthRows) {
-      if (row.type !== "EXPENSE") continue;
       const amount = Math.abs(Number(row.amount));
       const presentation = classifyTransactionPresentation(row.category?.name, row.note);
-      const isDebt = row.kind === "LOAN_PRINCIPAL" || row.kind === "LOAN_INTEREST" || presentation.isDebt;
-      const isSavings = presentation.isSavings && !presentation.isDebt && !presentation.isCreditCardPayment;
+      const isDebt = row.type === "EXPENSE" && (row.kind === "LOAN_PRINCIPAL" || row.kind === "LOAN_INTEREST" || presentation.isDebt);
+      const isSavings = row.type === "EXPENSE" && presentation.isSavings && !presentation.isDebt && !presentation.isCreditCardPayment;
+      const detail = {
+        id: row.id,
+        type: row.type,
+        kind: row.kind,
+        amount,
+        date: row.transactionDate.toISOString(),
+        category: row.category?.name?.trim() || "לא סווג",
+        note: row.note,
+        paymentMethod: row.paymentMethod ? `${row.paymentMethod.nickname}${row.paymentMethod.last4 ? ` •••• ${row.paymentMethod.last4}` : ""}` : null,
+      };
 
+      if (row.type === "INCOME") {
+        incomeDetails.push(detail);
+        continue;
+      }
       if (isDebt) {
         actualDebtPayments += amount;
+        debtDetails.push(detail);
         continue;
       }
       if (isSavings) {
         directSavings += amount;
+        savingsDetails.push(detail);
         continue;
       }
 
+      expenseDetails.push(detail);
       const categoryId = row.categoryId ?? null;
       const categoryName = row.category?.name?.trim() || "לא סווג";
       const key = categoryId ?? `name:${categoryName}`;
@@ -76,6 +107,13 @@ export async function GET(req: Request) {
     const hasTransactions = financial.transactionCount > 0;
     const hasBudgets = financial.budgets.length > 0;
     const hasEmergencySource = financial.emergency.target > 0 || financial.emergency.current > 0;
+    const drilldown = {
+      income: incomeDetails,
+      expenses: expenseDetails,
+      debts: debtDetails,
+      savings: savingsDetails,
+      cashflow: [...incomeDetails, ...expenseDetails, ...debtDetails, ...savingsDetails],
+    };
 
     return NextResponse.json({
       month,
@@ -106,6 +144,7 @@ export async function GET(req: Request) {
       debts: financial.debts,
       netWorth: financial.netWorth,
       recent: recentRows.map(recentTransactionPresentation),
+      drilldown,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
