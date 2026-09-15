@@ -1,0 +1,101 @@
+name: Repair credit card PDF import
+
+on:
+  push:
+    branches: [fix/credit-card-pdf-import-resilience]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/credit-card-pdf-import-resilience
+          fetch-depth: 0
+
+      - name: Patch importer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          route = Path('app/api/import/credit-card-pdf/route.ts')
+          text = route.read_text()
+
+          text = text.replace(
+              'const GEMINI_TIMEOUT_MS = 20_000;\n',
+              'const GEMINI_TIMEOUT_MS = 15_000;\nconst GEMINI_MAX_PARALLEL = 3;\n'
+          )
+
+          old = '      let allRows: PdfRow[] = []; for (const page of pages) allRows.push(...await requestGemini(page));\n'
+          new = '''      const geminiFailures: string[] = [];\n      const allRows: PdfRow[] = [];\n      for (let start = 0; start < pages.length; start += GEMINI_MAX_PARALLEL) {\n        const batch = pages.slice(start, start + GEMINI_MAX_PARALLEL);\n        const results = await Promise.allSettled(batch.map(page => requestGemini(page)));\n        results.forEach((result, index) => {\n          if (result.status === "fulfilled") allRows.push(...result.value);\n          else geminiFailures.push(result.reason instanceof Error ? result.reason.message : `GEMINI_PAGE_${start + index + 1}_FAILED`);\n        });\n      }\n      if (!allRows.length) throw new Error(geminiFailures[0] || "GEMINI_REQUEST_FAILED");\n'''
+          if old not in text:
+              raise SystemExit('main Gemini loop not found')
+          text = text.replace(old, new)
+
+          old = '      const missingAfterRecovery = expectedMonths.filter(month => !presentMonths.has(month)); if (missingAfterRecovery.length) throw new Error(`MISSING_MONTHS:${missingAfterRecovery.join(",")}`);\n'
+          new = '''      const missingAfterRecovery = expectedMonths.filter(month => !presentMonths.has(month));\n      const warnings = [\n        ...(geminiFailures.length ? [`GEMINI_PARTIAL:${[...new Set(geminiFailures)].slice(0, 3).join(",")}`] : []),\n        ...(missingAfterRecovery.length ? [`MISSING_MONTHS:${missingAfterRecovery.join(",")}`] : []),\n      ];\n'''
+          if old not in text:
+              raise SystemExit('missing month hard failure not found')
+          text = text.replace(old, new)
+
+          old = '      await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, errorMessage: null, completedAt: new Date() } });\n      return NextResponse.json({ success: true, rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, monthsDetected: [...presentMonths].sort(), missingMonths: [] });\n'
+          new = '''      await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, errorMessage: warnings.length ? warnings.join("|") : null, completedAt: new Date() } });\n      return NextResponse.json({ success: true, partial: warnings.length > 0, warnings, rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, monthsDetected: [...presentMonths].sort(), missingMonths: missingAfterRecovery });\n'''
+          if old not in text:
+              raise SystemExit('completion response block not found')
+          text = text.replace(old, new)
+
+          route.write_text(text)
+
+          page = Path('app/import/credit-card-pdf/page.tsx')
+          p = page.read_text()
+          p = p.replace(
+              'type Result = Record<string, any> & { rowsImported: number; rowsUpdated: number; rowsSkipped: number; alreadyProcessed?: boolean; reprocessed?: boolean };\n',
+              'type Result = Record<string, any> & { rowsImported: number; rowsUpdated: number; rowsSkipped: number; alreadyProcessed?: boolean; reprocessed?: boolean; partial?: boolean; warnings?: string[]; missingMonths?: string[] };\n'
+          )
+          p = p.replace(
+              'type FileState = { file: File; hash: string; duplicate: boolean; status: "חדש" | "כבר יובא" | "מייבא" | "הושלם" | "שגיאה"; message?: string; result?: Result };\n',
+              'type FileState = { file: File; hash: string; duplicate: boolean; status: "חדש" | "כבר יובא" | "מייבא" | "הושלם" | "הושלם חלקית" | "שגיאה"; message?: string; result?: Result };\n'
+          )
+          p = p.replace(
+              'if (res.ok) { update(index, { status: data.alreadyProcessed ? "כבר יובא" : "הושלם", duplicate: false, result: data as Result, message: data.reprocessed ? `ייבוא מחדש הושלם: ${data.rowsImported || 0} נוספו, ${data.rowsUpdated || 0} עודכנו` : undefined }); return; }',
+              'if (res.ok) { const result = data as Result; const partial = Boolean(result.partial); const warningText = partial ? `ייבוא הושלם חלקית: ${result.rowsImported || 0} נוספו, ${result.rowsUpdated || 0} עודכנו${result.missingMonths?.length ? ` · חודשים חסרים: ${result.missingMonths.join(", ")}` : ""}` : undefined; update(index, { status: data.alreadyProcessed ? "כבר יובא" : partial ? "הושלם חלקית" : "הושלם", duplicate: false, result, message: data.reprocessed ? `ייבוא מחדש הושלם: ${data.rowsImported || 0} נוספו, ${data.rowsUpdated || 0} עודכנו` : warningText }); return; }'
+          )
+          p = p.replace(
+              'const duplicates = items.filter(x => x.duplicate).length, pending = items.filter(x => x.status !== "הושלם").length;',
+              'const duplicates = items.filter(x => x.duplicate).length, pending = items.filter(x => x.status !== "הושלם" && x.status !== "הושלם חלקית" && x.status !== "כבר יובא").length, completed = items.filter(x => x.status === "הושלם").length, partial = items.filter(x => x.status === "הושלם חלקית").length, failed = items.filter(x => x.status === "שגיאה").length;'
+          )
+          p = p.replace(
+              '{items.length} קבצים · {duplicates} כבר יובאו · {pending} ממתינים לייבוא',
+              '{items.length} קבצים נבחרו · {completed} הושלמו · {partial} הושלמו חלקית · {failed} דורשים טיפול · {duplicates} כבר יובאו'
+          )
+          p = p.replace(
+              'item.status === "שגיאה" ? "bg-red-50 text-red-700" : item.status === "הושלם" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-700"',
+              'item.status === "שגיאה" ? "bg-red-50 text-red-700" : item.status === "הושלם חלקית" ? "bg-amber-50 text-amber-700" : item.status === "הושלם" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-700"'
+          )
+          p = p.replace(
+              'item.status === "הושלם" ? `${item.result?.rowsImported || 0} נוספו · ${item.result?.rowsUpdated || 0} עודכנו` : "חדש — מוכן לייבוא"',
+              'item.status === "הושלם" || item.status === "הושלם חלקית" ? `${item.result?.rowsImported || 0} נוספו · ${item.result?.rowsUpdated || 0} עודכנו` : "חדש — מוכן לייבוא"'
+          )
+          old_button = '<span className={`rounded-full px-3 py-1 text-xs font-bold ${item.status === "כבר יובא" ? "bg-amber-50 text-amber-700" : item.status === "שגיאה" ? "bg-red-50 text-red-700" : item.status === "הושלם חלקית" ? "bg-amber-50 text-amber-700" : item.status === "הושלם" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{item.status}</span>'
+          new_button = old_button + '{item.status === "שגיאה" && <button type="button" disabled={busy} onClick={() => void importOne(item, i)} className="secondary-button px-3 py-1 text-xs">נסה שוב</button>}'
+          if old_button not in p:
+              raise SystemExit('status span not found')
+          p = p.replace(old_button, new_button)
+          page.write_text(p)
+          PY
+
+      - name: Verify changes
+        run: |
+          grep -q 'GEMINI_MAX_PARALLEL' app/api/import/credit-card-pdf/route.ts
+          grep -q 'הושלם חלקית' app/import/credit-card-pdf/page.tsx
+
+      - name: Commit repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/api/import/credit-card-pdf/route.ts app/import/credit-card-pdf/page.tsx
+          git commit -m 'fix: make credit card PDF import resilient to Gemini partial failures' || exit 0
+          git push origin fix/credit-card-pdf-import-resilience
