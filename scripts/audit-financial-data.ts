@@ -39,7 +39,7 @@ async function main() {
         type: row.type as "INCOME" | "EXPENSE",
         amount: Number(row.amount),
         note: row.note,
-        paymentMethodName: paymentMethodNames.get(row.paymentMethodId) ?? null,
+        paymentMethodName: row.paymentMethodId ? paymentMethodNames.get(row.paymentMethodId) ?? null : null,
         fingerprint: row.fingerprint,
       })),
       "BANK",
