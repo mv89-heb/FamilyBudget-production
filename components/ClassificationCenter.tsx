@@ -35,7 +35,6 @@ export default function ClassificationCenter() {
 
   const byId = useMemo(() => new Map(transactions.map((row) => [row.id, row])), [transactions]);
   const total = transactions.reduce((sum, row) => sum + row.amount, 0);
-  const suggestionById = useMemo(() => new Map(suggestions.map((item) => [item.transactionId, item])), [suggestions]);
 
   async function askGemini() {
     if (!selected.length || busy) return;
@@ -48,9 +47,9 @@ export default function ClassificationCenter() {
       if (!response.ok) throw new Error(data.error || "Gemini לא הצליח לסווג את התנועות");
       const nextSuggestions = (data.suggestions || []).map((item: Suggestion) => ({ ...item, rememberRule: false }));
       setSuggestions(nextSuggestions);
-      const localText = data.resolvedLocally ? ` ${data.resolvedLocally} סווגו כבר מקומית לפי כללים וזיהוי ודאי.` : "";
+      const localText = data.resolvedLocally ? ` ${data.resolvedLocally} תנועות זוהו מקומית בוודאות.` : "";
       const warningText = data.warning ? ` ${data.warning}` : "";
-      setMessage(`נמצאו הצעות ל-${data.classified} מתוך ${data.requested} תנועות.${localText}${warningText}`);
+      setMessage(`נמצאו ${data.classified || nextSuggestions.length} הצעות מתוך ${data.requested || selected.length} תנועות.${localText}${warningText} כל ההצעות עדיין ממתינות לאישור שלך.`);
     } catch (e) {
       setError(e instanceof DOMException && e.name === "AbortError" ? "הניתוח ארך יותר מדי זמן. נסה שוב או נתח קבוצה קטנה יותר." : e instanceof Error ? e.message : "שגיאה בסיווג");
     } finally {
@@ -80,14 +79,13 @@ export default function ClassificationCenter() {
       const response = await fetch("/api/classification", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ action: "apply", suggestions: items }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "לא ניתן לאשר את הסיווגים");
-      setMessage(`${data.updated} תנועות סווגו. ${data.rulesCreated ? `${data.rulesCreated} כללים נשמרו להמשך.` : ""}`.trim());
+      setMessage(`${data.updated} תנועות סווגו ואושרו בהצלחה. ${data.rulesCreated ? `${data.rulesCreated} כללים נשמרו להמשך.` : ""}`.trim());
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : "שגיאה באישור"); } finally { setBusy(false); }
   }
 
   const highConfidence = suggestions.filter((item) => item.confidence >= 90);
   const totalSuggested = highConfidence.reduce((sum, item) => sum + (byId.get(item.transactionId)?.amount || 0), 0);
-  const unresolvedAfterLocal = Math.max(0, transactions.length - (suggestions.length ? Math.min(suggestions.length, transactions.length) : 0));
 
   return <div dir="rtl" className="space-y-6 pb-8">
     <header className="page-header">
@@ -95,26 +93,26 @@ export default function ClassificationCenter() {
     </header>
 
     <section className="grid gap-4 sm:grid-cols-3">
-      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">דורש סיווג</div><div className="mt-2 text-3xl font-black text-slate-900">{transactions.length}</div><div className="mt-1 text-xs text-slate-500">{money(total)} · תנועות עם "אחר"</div></div>
-      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">הצעות ביטחון גבוה</div><div className="mt-2 text-3xl font-black text-emerald-700">{highConfidence.length}</div><div className="mt-1 text-xs text-slate-500">{money(totalSuggested)} · ≥90% ביטחון</div></div>
+      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">ממתין לטיפול</div><div className="mt-2 text-3xl font-black text-slate-900">{transactions.length}</div><div className="mt-1 text-xs text-slate-500">{money(total)} · עדיין לא אושר</div></div>
+      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">ממתין לאישור · ביטחון גבוה</div><div className="mt-2 text-3xl font-black text-emerald-700">{highConfidence.length}</div><div className="mt-1 text-xs text-slate-500">{money(totalSuggested)} · ≥90% ביטחון</div></div>
       <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">קטגוריות זמינות</div><div className="mt-2 text-3xl font-black text-slate-900">{categories.length}</div><div className="mt-1 text-xs text-slate-500">Gemini רשאי לבחור רק מהן</div></div>
     </section>
 
     {error && <div role="alert" className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
     {message && <div role="status" className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">{message}</div>}
 
-    {transactions.length === 0 ? <section className="card-elevated p-8 text-center"><CheckCircle2 className="mx-auto text-emerald-600" size={32} /><h2 className="mt-3 text-lg font-black text-slate-900">אין כרגע תנועות שממתינות לסיווג</h2><p className="mt-1 text-sm text-slate-500">מצוין — הדשבורד לא צריך להסתיר שום סכום בתוך "אחר".</p></section> : <>
+    {transactions.length === 0 ? <section className="card-elevated p-8 text-center"><CheckCircle2 className="mx-auto text-emerald-600" size={32} /><h2 className="mt-3 text-lg font-black text-slate-900">אין כרגע תנועות שממתינות לסיווג</h2><p className="mt-1 text-sm text-slate-500">מצוין — כל התנועות טופלו או שאינן דורשות סיווג.</p></section> : <>
       <section className="card-elevated overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-5 md:flex-row md:items-center md:justify-between">
           <div><h2 className="font-black text-slate-900">1. בחר תנועות לניתוח</h2><p className="mt-1 text-xs text-slate-500">נשלחים ל-Gemini רק תיאור, סכום ותאריך — לא מזהי חשבון. תנועות שניתן לסווג בבטחה מטופלות מקומית ללא קריאת API.</p></div>
           <div className="flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={busy} onClick={() => setSelected(transactions.map((row) => row.id))}>בחר הכול</button><button type="button" className="secondary-button" disabled={busy} onClick={() => setSelected([])}>נקה</button><button type="button" className="primary-button inline-flex items-center gap-2" disabled={!selected.length || busy} onClick={() => void askGemini()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <WandSparkles size={16} />} {busy ? "מנתח..." : `נתח ${selected.length} תנועות עם Gemini`}</button></div>
         </div>
-        <div className="divide-y divide-slate-100">{transactions.map((row) => <label key={row.id} className="flex cursor-pointer items-center gap-3 p-4 transition hover:bg-slate-50"><input type="checkbox" checked={selected.includes(row.id)} disabled={busy} onChange={(e) => setSelected((current) => e.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-800">{row.note || "ללא תיאור"}</span><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{row.categoryName}</span></div><div className="mt-1 text-xs text-slate-500">{new Date(row.transactionDate).toLocaleDateString("he-IL")}</div></div><strong className="text-sm text-slate-900">{money(row.amount)}</strong></label>)}</div>
+        <div className="divide-y divide-slate-100">{transactions.map((row) => <label key={row.id} className="flex cursor-pointer items-center gap-3 p-4 transition hover:bg-slate-50"><input type="checkbox" checked={selected.includes(row.id)} disabled={busy} onChange={(e) => setSelected((current) => e.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-800">{row.note || "ללא תיאור"}</span><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">ממתין לאישור · {row.categoryName}</span></div><div className="mt-1 text-xs text-slate-500">{new Date(row.transactionDate).toLocaleDateString("he-IL")}</div></div><strong className="text-sm text-slate-900">{money(row.amount)}</strong></label>)}</div>
       </section>
 
       {suggestions.length > 0 && <section className="card-elevated overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-5 md:flex-row md:items-center md:justify-between"><div><h2 className="font-black text-slate-900">2. בדוק את ההצעות</h2><p className="mt-1 text-xs text-slate-500">הצעה היא רק הצעה. רק אישור שלך משנה את התנועה. הצעות מקומיות ו-Gemini מוצגות כאן יחד.</p></div><button type="button" className="primary-button inline-flex items-center gap-2" disabled={busy || !highConfidence.length} onClick={() => void applySuggestions(highConfidence)}><Check size={16} /> אשר את הביטחון הגבוה</button></div>
-        <div className="divide-y divide-slate-100">{suggestions.map((item) => { const row = byId.get(item.transactionId); const categoryName = categories.find((category) => category.id === item.categoryId)?.name || "קטגוריה לא נמצאה"; return <div key={item.transactionId} className="grid gap-4 p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{row?.note || "ללא תיאור"}</strong><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.confidence >= 90 ? "bg-emerald-50 text-emerald-700" : item.confidence >= 70 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{item.confidence}% ביטחון</span></div><p className="mt-2 text-sm text-slate-600">{item.reason}</p><div className="mt-3 flex flex-wrap items-center gap-2"><Tag size={15} className="text-slate-400" /><select value={item.categoryId} onChange={(e) => updateSuggestion(item.transactionId, { categoryId: e.target.value })} className="input-professional max-w-xs" disabled={busy}>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{item.rulePattern && <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={item.rememberRule} disabled={busy} onChange={(e) => updateSuggestion(item.transactionId, { rememberRule: e.target.checked })} /> זכור את הסיווג הזה להבא ({item.rulePattern})</label>}</div></div><div className="flex items-start justify-between gap-4 md:flex-col md:items-end"><strong className="text-sm text-slate-900">{row ? money(row.amount) : ""}</strong><button type="button" className="secondary-button inline-flex items-center gap-2" disabled={busy} onClick={() => void applySuggestions([item])}><Check size={15} /> אשר</button></div></div>; })}</div>
+        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-5 md:flex-row md:items-center md:justify-between"><div><h2 className="font-black text-slate-900">2. הצעות שממתינות לאישור</h2><p className="mt-1 text-xs text-slate-500">התג הירוק מציין רמת ביטחון בלבד — הוא לא אומר שהסיווג נשמר. רק לחיצה על "אשר" הופכת את ההצעה לסיווג בפועל.</p></div><button type="button" className="primary-button inline-flex items-center gap-2" disabled={busy || !highConfidence.length} onClick={() => void applySuggestions(highConfidence)}><Check size={16} /> אשר את הביטחון הגבוה</button></div>
+        <div className="divide-y divide-slate-100">{suggestions.map((item) => { const row = byId.get(item.transactionId); const categoryName = categories.find((category) => category.id === item.categoryId)?.name || "קטגוריה לא נמצאה"; return <div key={item.transactionId} className="grid gap-4 p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{row?.note || "ללא תיאור"}</strong><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">ממתין לאישור</span><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.confidence >= 90 ? "bg-emerald-50 text-emerald-700" : item.confidence >= 70 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{item.confidence}% ביטחון</span></div><p className="mt-2 text-sm text-slate-600">{item.reason}</p><div className="mt-3 flex flex-wrap items-center gap-2"><Tag size={15} className="text-slate-400" /><select aria-label={`קטגוריה עבור ${row?.note || "תנועה"}`} value={item.categoryId} onChange={(e) => updateSuggestion(item.transactionId, { categoryId: e.target.value })} className="input-professional max-w-xs" disabled={busy}>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{item.rulePattern && <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={item.rememberRule} disabled={busy} onChange={(e) => updateSuggestion(item.transactionId, { rememberRule: e.target.checked })} /> זכור את הסיווג הזה להבא ({item.rulePattern})</label>}</div><div className="mt-2 text-xs font-semibold text-slate-500">קטגוריה מוצעת: <span className="text-slate-800">{categoryName}</span> · הסטטוס: <span className="text-amber-700">ממתין לאישור</span></div></div><div className="flex items-start justify-between gap-4 md:flex-col md:items-end"><strong className="text-sm text-slate-900">{row ? money(row.amount) : ""}</strong><button type="button" className="secondary-button inline-flex items-center gap-2" disabled={busy} onClick={() => void applySuggestions([item])}><Check size={15} /> אשר</button></div></div>; })}</div>
       </section>}
     </>}
 
