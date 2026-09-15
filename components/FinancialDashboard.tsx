@@ -1,0 +1,242 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft, ArrowUpRight, Bell, CheckCircle2, PiggyBank, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+
+type Category = {
+  categoryId: string | null;
+  categoryName: string;
+  amount: number;
+  sharePercent: number;
+  startPercent: number;
+};
+
+type Budget = {
+  categoryId: string;
+  categoryName: string;
+  limit: number;
+  spent: number;
+  remaining: number;
+  percent: number;
+  progressPercent: number;
+  overBudget: boolean;
+  status: "GOOD" | "WARNING" | "OVER";
+};
+
+type Insight = { type: "POSITIVE" | "WARNING" | "ACTION"; title: string; text: string };
+
+type DashboardData = {
+  month: string;
+  income: number;
+  expense: number;
+  balance: number;
+  debtPrincipal: number;
+  savings: {
+    directSavings: number;
+    directSavingsRate: number;
+    debtPrincipalPaid: number;
+    wealthBuilding: number;
+    wealthBuildingRate: number;
+  };
+  emergency: { current: number; target: number; progressPercent: number; remaining: number };
+  byCategory: Category[];
+  budgetComparisons: Budget[];
+  insights: Insight[];
+  recent: { id: string; type: "INCOME" | "EXPENSE"; amount: number; date: string; category: string; paymentMethod: string | null }[];
+};
+
+const money = (value: number) => new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 }).format(value);
+const number = (value: number) => new Intl.NumberFormat("he-IL", { maximumFractionDigits: 0 }).format(value);
+
+function currentMonth() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  return `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}`;
+}
+
+async function readJson(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) throw new Error(`שגיאת שרת (${response.status})`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || `שגיאת שרת (${response.status})`);
+  return data;
+}
+
+export default function FinancialDashboard() {
+  const [month, setMonth] = useState(currentMonth());
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setData(null);
+    setError("");
+    fetch(`/api/dashboard?month=${encodeURIComponent(month)}`, { signal: controller.signal, cache: "no-store", headers: { Accept: "application/json" } })
+      .then(readJson)
+      .then(setData)
+      .catch((reason: unknown) => {
+        if (reason instanceof Error && reason.name === "AbortError") return;
+        setError(reason instanceof Error ? reason.message : "שגיאה בטעינת הסקירה");
+      });
+    return () => controller.abort();
+  }, [month]);
+
+  const periodLabel = useMemo(() => new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric" }).format(new Date(`${month}-01T12:00:00`)), [month]);
+
+  if (error) return <div dir="rtl" role="alert" className="rounded-2xl border border-red-100 bg-red-50 p-5 text-sm font-semibold text-red-700">{error}</div>;
+  if (!data) return <DashboardSkeleton />;
+
+  const goodBudgets = data.budgetComparisons.filter((row) => row.status === "GOOD").length;
+  const alerts = data.budgetComparisons.filter((row) => row.status !== "GOOD").length;
+
+  return (
+    <div dir="rtl" className="space-y-6 pb-8">
+      <header className="page-header">
+        <div>
+          <div className="eyebrow"><Wallet size={14} /> מרכז בקרה פיננסי</div>
+          <h1 className="page-title">המצב המשפחתי, במבט אחד</h1>
+          <p className="page-subtitle">{periodLabel} · תמונת מצב חיה שמסבירה מה קורה עם הכסף ומה כדאי לעשות עכשיו.</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <label htmlFor="dashboard-month" className="sr-only">חודש</label>
+          <input id="dashboard-month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="rounded-xl border-0 bg-slate-50 px-3 py-2 text-sm font-bold outline-none" />
+        </div>
+      </header>
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <Metric title="הכנסות" value={money(data.income)} icon={<TrendingUp size={19} />} tone="good" hint="הכנסה תפעולית מה-Ledger" />
+        <Metric title="הוצאות שוטפות" value={money(data.expense)} icon={<TrendingDown size={19} />} tone="neutral" hint="אחרי החזרים וללא העברות פנימיות" />
+        <Metric title="נשאר החודש" value={money(data.balance)} icon={<Wallet size={19} />} tone={data.balance >= 0 ? "good" : "danger"} hint="תזרים נטו לפי מקור האמת" />
+        <Metric title="בניית הון" value={`${number(data.savings.wealthBuildingRate)}%`} icon={<PiggyBank size={19} />} tone="primary" hint={`${money(data.savings.wealthBuilding)} חיסכון + החזרי קרן`} />
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[1.05fr_.95fr]">
+        <section className="card-elevated p-5 md:p-6">
+          <SectionTitle title="איפה הכסף יוצא?" subtitle="פילוח ההוצאה השוטפת לפי קטגוריה" link="/transactions" linkText="לתנועות" />
+          {data.byCategory.length === 0 ? <EmptyState text="אין הוצאות שוטפות בתקופה הזו." /> : (
+            <div className="grid gap-6 md:grid-cols-[230px_1fr] md:items-center">
+              <DonutChart rows={data.byCategory.slice(0, 7)} />
+              <div className="space-y-3">
+                {data.byCategory.slice(0, 7).map((row, index) => <div key={`${row.categoryId}-${row.categoryName}`} className="flex items-center justify-between gap-4 rounded-xl px-2 py-1.5 hover:bg-slate-50">
+                  <div className="flex min-w-0 items-center gap-2"><span className={`h-2.5 w-2.5 shrink-0 rounded-full chart-dot-${index % 6}`} /><span className="truncate text-sm font-semibold text-slate-700">{row.categoryName}</span></div>
+                  <div className="shrink-0 text-left"><b className="text-sm text-slate-900">{money(row.amount)}</b><span className="mr-2 text-xs text-slate-400">{number(row.sharePercent)}%</span></div>
+                </div>)}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="card-elevated p-5 md:p-6">
+          <SectionTitle title="קרן החירום" subtitle="כמה כבר בניתם מתוך היעד" />
+          <div className="flex items-center gap-6 py-4">
+            <ProgressRing percent={data.emergency.progressPercent} />
+            <div className="min-w-0">
+              <div className="text-3xl font-black tracking-tight text-slate-900">{number(data.emergency.current)} ₪</div>
+              <div className="mt-1 text-sm text-slate-500">מתוך יעד של <b className="text-slate-700">{money(data.emergency.target)}</b></div>
+              {data.emergency.remaining > 0 ? <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs font-semibold text-slate-600">חסרים {money(data.emergency.remaining)} ליעד.</div> : <div className="mt-4 flex items-center gap-2 text-xs font-bold text-emerald-700"><CheckCircle2 size={16} /> היעד הושג</div>}
+            </div>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${data.emergency.progressPercent}%` }} /></div>
+        </section>
+      </section>
+
+      <section className="card-elevated overflow-hidden p-5 md:p-6">
+        <SectionTitle title="תכנון מול ביצוע" subtitle="המסגרת שהוגדרה מול ההוצאה בפועל" link="/plan" linkText="לתוכנית החודש" />
+        {data.budgetComparisons.length === 0 ? <EmptyState text="עדיין לא הוגדרו מסגרות לחודש הזה." action="/plan" /> : (
+          <div className="space-y-4">
+            {data.budgetComparisons.map((row) => <BudgetBar key={row.categoryId} row={row} />)}
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-4 text-xs font-semibold text-slate-500">
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" /> תקין: {goodBudgets}</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-amber-400" /> התראה: {data.budgetComparisons.filter((row) => row.status === "WARNING").length}</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" /> חריגה: {data.budgetComparisons.filter((row) => row.status === "OVER").length}</span>
+          {alerts === 0 && <span className="mr-auto text-emerald-700">כל המסגרות בשליטה</span>}
+        </div>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+        <section className="card-elevated p-5 md:p-6">
+          <div className="mb-5 flex items-start gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600"><Bell size={19} /></div>
+            <div><h2 className="text-lg font-extrabold text-slate-900">תובנות החודש</h2><p className="mt-1 text-xs text-slate-400">המלצות דטרמיניסטיות על בסיס נתוני ה-Ledger בלבד.</p></div>
+          </div>
+          <div className="space-y-3">
+            {data.insights.length ? data.insights.map((insight, index) => <InsightCard key={`${insight.title}-${index}`} insight={insight} />) : <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">אין מספיק פעילות כדי לייצר תובנות משמעותיות עדיין.</div>}
+          </div>
+        </section>
+
+        <section className="card-elevated p-5 md:p-6">
+          <h2 className="text-lg font-extrabold text-slate-900">איך בניתם הון?</h2>
+          <p className="mt-1 text-xs text-slate-400">חיסכון ישיר + החזרי קרן</p>
+          <div className="mt-6 space-y-4">
+            <SavingsRow label="חיסכון ישיר" value={money(data.savings.directSavings)} meta={`${number(data.savings.directSavingsRate)}% מההכנסה`} />
+            <SavingsRow label="החזרי קרן" value={money(data.savings.debtPrincipalPaid)} meta="הפחתת התחייבות" />
+            <div className="rounded-2xl bg-slate-900 p-4 text-white"><div className="text-xs font-semibold text-slate-300">בניית הון החודש</div><div className="mt-1 text-2xl font-black">{money(data.savings.wealthBuilding)}</div><div className="mt-1 text-xs text-slate-300">{number(data.savings.wealthBuildingRate)}% מההכנסה</div></div>
+          </div>
+        </section>
+      </section>
+
+      <section className="card-elevated p-5 md:p-6">
+        <SectionTitle title="פעילות אחרונה" subtitle="הנתונים שמאחורי תמונת המצב" link="/transactions" linkText="לכל התנועות" />
+        {data.recent.length === 0 ? <EmptyState text="אין תנועות בתקופה הזו." /> : <div className="divide-y divide-slate-100">{data.recent.map((row) => <div key={row.id} className="flex items-center justify-between gap-4 py-3"><div className="min-w-0"><div className="truncate text-sm font-bold text-slate-800">{row.category}</div><div className="mt-0.5 text-xs text-slate-400">{new Date(row.date).toLocaleDateString("he-IL")}{row.paymentMethod ? ` · ${row.paymentMethod}` : ""}</div></div><b className={row.type === "INCOME" ? "text-emerald-700" : "text-slate-800"}>{row.type === "INCOME" ? "+" : "-"}{money(row.amount)}</b></div>)}</div>}
+      </section>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <QuickAction href="/transactions" title="תנועות וייבוא" text="הוספה, סיווג וייבוא נתונים" />
+        <QuickAction href="/plan" title="תוכנית החודש" text="מסגרות, חיסכון ותכנון" />
+        <QuickAction href="/loans" title="חובות והתחייבויות" text="מעקב אחר החזרי קרן" />
+      </div>
+    </div>
+  );
+}
+
+function Metric({ title, value, hint, icon, tone }: { title: string; value: string; hint: string; icon: React.ReactNode; tone: "good" | "neutral" | "danger" | "primary" }) {
+  return <div className="card-elevated p-5"><div className="flex items-center justify-between"><span className={`grid h-9 w-9 place-items-center rounded-xl metric-${tone}`}>{icon}</span><span className="text-xs font-bold text-slate-400">{title}</span></div><div className="mt-4 text-2xl font-black tracking-tight text-slate-900">{value}</div><div className="mt-1 text-xs text-slate-400">{hint}</div></div>;
+}
+
+function SectionTitle({ title, subtitle, link, linkText }: { title: string; subtitle: string; link?: string; linkText?: string }) {
+  return <div className="mb-5 flex items-end justify-between gap-4"><div><h2 className="text-lg font-extrabold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-400">{subtitle}</p></div>{link && <Link href={link} className="shrink-0 text-sm font-bold text-indigo-600">{linkText}<ArrowLeft size={14} className="mr-1 inline" /></Link>}</div>;
+}
+
+function DonutChart({ rows }: { rows: Category[] }) {
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  return <div className="relative mx-auto h-[210px] w-[210px]">
+    <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+      <circle cx="60" cy="60" r={radius} fill="none" stroke="currentColor" strokeWidth="14" className="text-slate-100" />
+      {rows.map((row, index) => <circle key={`${row.categoryId}-${row.categoryName}`} cx="60" cy="60" r={radius} fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="butt" strokeDasharray={`${(row.sharePercent / 100) * circumference} ${circumference}`} strokeDashoffset={`${-(row.startPercent / 100) * circumference}`} className={`chart-stroke-${index % 6}`} />)}
+    </svg>
+    <div className="absolute inset-0 grid place-items-center text-center"><div><div className="text-xs font-semibold text-slate-400">הוצאות</div><div className="mt-0.5 text-xl font-black text-slate-900">{number(rows.reduce((sum, row) => sum + row.amount, 0))} ₪</div></div></div>
+  </div>;
+}
+
+function ProgressRing({ percent }: { percent: number }) {
+  return <div className="relative grid h-36 w-36 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(rgb(16 185 129) ${percent}%, rgb(241 245 249) ${percent}% 100%)` }}><div className="grid h-28 w-28 place-items-center rounded-full bg-white shadow-inner"><div className="text-center"><div className="text-2xl font-black text-slate-900">{number(percent)}%</div><div className="text-[10px] font-bold text-slate-400">התקדמות</div></div></div></div>;
+}
+
+function BudgetBar({ row }: { row: Budget }) {
+  const statusClass = row.status === "OVER" ? "budget-over" : row.status === "WARNING" ? "budget-warning" : "budget-good";
+  return <div className="grid gap-2 md:grid-cols-[180px_1fr_145px] md:items-center"><div className="truncate text-sm font-bold text-slate-700">{row.categoryName}</div><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full transition-all ${statusClass}`} style={{ width: `${row.progressPercent}%` }} /></div><div className="text-left text-xs"><b className="text-slate-800">{money(row.spent)}</b><span className="text-slate-400"> / {money(row.limit)}</span><span className={`mr-2 font-bold ${row.status === "OVER" ? "text-red-600" : row.status === "WARNING" ? "text-amber-600" : "text-emerald-600"}`}>{row.status === "OVER" ? `חריגה ${money(Math.abs(row.remaining))}` : `${number(row.percent)}%`}</span></div></div>;
+}
+
+function InsightCard({ insight }: { insight: Insight }) {
+  const tone = insight.type === "POSITIVE" ? "insight-positive" : insight.type === "WARNING" ? "insight-warning" : "insight-action";
+  return <div className={`rounded-2xl border p-4 ${tone}`}><div className="flex items-start gap-3"><ArrowUpRight size={17} className="mt-0.5 shrink-0" /><div><div className="text-sm font-extrabold">{insight.title}</div><div className="mt-1 text-xs leading-5 opacity-80">{insight.text}</div></div></div></div>;
+}
+
+function SavingsRow({ label, value, meta }: { label: string; value: string; meta: string }) {
+  return <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-50 p-4"><div className="text-sm font-bold text-slate-700">{label}</div><div className="text-left"><div className="font-black text-slate-900">{value}</div><div className="text-[11px] text-slate-400">{meta}</div></div></div>;
+}
+
+function QuickAction({ href, title, text }: { href: string; title: string; text: string }) {
+  return <Link href={href} className="card-elevated group p-4 transition hover:-translate-y-0.5 hover:border-indigo-200"><div className="flex items-center justify-between gap-3"><div><div className="font-extrabold text-slate-800">{title}</div><div className="mt-1 text-xs text-slate-400">{text}</div></div><ArrowLeft size={17} className="text-slate-300 transition group-hover:text-indigo-500" /></div></Link>;
+}
+
+function EmptyState({ text, action }: { text: string; action?: string }) {
+  return <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm font-semibold text-slate-500">{text}{action && <Link href={action} className="mr-2 text-indigo-600">הגדרה</Link>}</div>;
+}
+
+function DashboardSkeleton() {
+  return <div dir="rtl" className="space-y-5"><div className="h-24 animate-pulse rounded-2xl bg-slate-100" /><div className="grid gap-4 md:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-32 animate-pulse rounded-2xl bg-slate-100" />)}</div><div className="grid gap-5 lg:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-72 animate-pulse rounded-2xl bg-slate-100" />)}</div></div>;
+}
