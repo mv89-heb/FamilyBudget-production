@@ -61,7 +61,7 @@ export async function GET(req: Request) {
       netCashFlow: summary.netCashFlow,
       cashFlowBalance: summary.netCashFlow,
       financingActivity: summary.financingActivity,
-      financingCashFlow: summary.netCashFlow - summary.income + summary.operatingExpense,
+      financingCashFlow: summary.financingCashFlow,
       debtPrincipal: summary.debtPrincipal,
       debtInterest: summary.debtInterest,
       loanReceived: summary.loanReceived,
