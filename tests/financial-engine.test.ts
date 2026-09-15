@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  calculateCashFlowBalance,
   calculateCreditCardNetExpense,
   calculateDebtPayments,
   calculateFinancingActivity,
@@ -38,7 +39,8 @@ test("financing and debt activity stay outside operating expense", () => {
 
   assert.equal(calculateNetExpense(transactions), 150);
   assert.equal(calculateDebtPayments(transactions), 450);
-  assert.equal(calculateFinancingActivity(transactions), 3000);
+  assert.equal(calculateFinancingActivity(transactions), 2400);
+  assert.equal(calculateCashFlowBalance(transactions), 1850);
 });
 
 test("legacy STANDARD debt can count toward debt burden without becoming principal", () => {
