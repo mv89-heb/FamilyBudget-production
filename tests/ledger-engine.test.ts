@@ -25,8 +25,9 @@ test("ledger summary keeps operating results separate from financing", () => {
     debtPrincipal: 1200,
     debtInterest: 300,
     loanReceived: 5000,
-    financingActivity: 7100,
-    netCashFlow: 8550,
+    financingActivity: 6200,
+    financingCashFlow: 3800,
+    netCashFlow: 9750,
   });
 });
 
