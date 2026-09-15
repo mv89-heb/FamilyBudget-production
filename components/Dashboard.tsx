@@ -1,3 +1,3 @@
 "use client";
 
-export { default } from "@/components/FinancialDashboard";
+export { default } from "@/components/FinancialDashboardV2";
