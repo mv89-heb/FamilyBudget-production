@@ -8,6 +8,7 @@ import { financialValue } from "@/lib/data-quality";
 type Category = { categoryId: string | null; categoryName: string; amount: number; sharePercent: number };
 type Budget = { categoryId: string; categoryName: string; limit: number; spent: number; remaining: number; overage: number; percent: number; progressPercent: number; overBudget: boolean; status: "GOOD" | "WARNING" | "OVER" };
 type Insight = { type: "POSITIVE" | "WARNING" | "ACTION"; title: string; text: string };
+type Loan = { id: string; name: string; originalAmount: number; outstandingAmount: number | null; interestRate: number | null; monthlyPayment: number | null; startDate: string | null; endDate: string | null; principalPaid: number; interestPaid: number; source: "MANUAL" | "INFERRED" };
 type DashboardData = {
   month: string;
   transactionCount: number;
@@ -28,6 +29,7 @@ type DashboardData = {
   budgetComparisons: Budget[];
   insights: Insight[];
   recent: { id: string; type: "INCOME" | "EXPENSE"; amount: number; date: string; category: string; paymentMethod: string | null }[];
+  loans: Loan[];
   netWorth?: { netWorth: number; totalAssets: number; totalLiabilities: number };
   debts?: { count: number; outstanding: number; monthlyPayments: number; principalPaid: number; interestPaid: number };
 };
@@ -42,6 +44,22 @@ function FlowItem({ label, value, note, tone = "neutral" }: { label: string; val
     <div className="text-xs font-bold text-slate-500">{label}</div>
     <div className="mt-1 text-2xl font-black text-slate-900">{money(value)}</div>
     <div className="mt-1 text-xs font-medium text-slate-500">{note}</div>
+  </div>;
+}
+
+function DebtPayments({ loans, total }: { loans: Loan[]; total: number }) {
+  const visible = loans.filter(loan => (loan.monthlyPayment ?? 0) > 0).sort((a, b) => (b.monthlyPayment ?? 0) - (a.monthlyPayment ?? 0));
+  if (!visible.length) return <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">אין עדיין פירוט הלוואות זמין לחודש הזה.</div>;
+  return <div className="mt-5 space-y-2">
+    {visible.map(loan => <a key={loan.id} href="/loans" className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-700"><Wallet size={17} /></div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-bold text-slate-800">{loan.name}</span>{loan.source === "INFERRED" && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">זוהה מתנועות</span>}</div>
+        <div className="mt-1 text-xs text-slate-500">{loan.outstandingAmount == null ? "יתרה לסגירה לא הוגדרה" : `יתרה לסגירה ${money(loan.outstandingAmount)}`}</div>
+      </div>
+      <strong className="shrink-0 text-sm text-slate-900">{money(loan.monthlyPayment ?? 0)}</strong>
+    </a>)}
+    <div className="flex items-center justify-between pt-1 text-xs text-slate-400"><span>סה״כ תשלומי חוב החודש</span><strong className="text-slate-600">{money(total)}</strong></div>
   </div>;
 }
 
@@ -103,6 +121,8 @@ export default function FinancialDashboardV3() {
       <FinancialKpi label="תשלומי חוב" value={debtService} status={ledgerHasData ? "HAS_DATA" : "NO_DATA"} icon={<Wallet size={18} />} hint="קרן + ריבית — כסף שיצא בפועל" />
       <FinancialKpi label="תזרים נטו" value={netFlow.value} status={netFlow.status} tone={data.netCashFlow >= 0 ? "positive" : "negative"} icon={<Wallet size={18} />} hint="הכנסות פחות כל היציאות בפועל" />
     </section>
+
+    <section className="card-elevated p-5 md:p-6"><SectionHeader title="תשלומי חוב החודש" description="פירוט החובות שנכללים בסכום תשלומי החוב. חוב שזוהה מהתנועות מוצג גם ללא רשומת הלוואה ידנית." /><DebtPayments loans={data.loans} total={debtService} /></section>
 
     <section className="card-elevated p-5 md:p-6">
       <SectionHeader title="תזרים מזומנים — מה קרה בעו״ש?" description="כאן רואים את הכסף שיצא בפועל. החזר קרן אינו נעלם — אבל הוא עדיין יציאה מהחשבון." />
