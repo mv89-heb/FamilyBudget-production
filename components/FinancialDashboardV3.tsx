@@ -81,12 +81,12 @@ export default function FinancialDashboardV3() {
   if (!data) return <div dir="rtl" className="space-y-4"><div className="h-24 animate-pulse rounded-2xl bg-slate-100" /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[1,2,3,4].map(i => <div key={i} className="h-32 animate-pulse rounded-2xl bg-slate-100" />)}</div></div>;
 
   const ledgerHasData = data.dataQuality.ledger === "HAS_DATA";
-  const income = financialValue(data.income, ledgerHasData ? "LEDGER" : "UNKNOWN");
-  const operatingExpense = financialValue(data.expense, ledgerHasData ? "LEDGER" : "UNKNOWN");
-  const netFlow = financialValue(data.netCashFlow, ledgerHasData ? "LEDGER" : "UNKNOWN");
-  const wealth = financialValue(data.savings.wealthBuilding, ledgerHasData ? "LEDGER" : "UNKNOWN");
-  const emergency = financialValue(data.emergency.current, data.dataQuality.emergency === "HAS_DATA" ? "SINKING_FUND" : "UNKNOWN");
-  const emergencyTarget = financialValue(data.emergency.target, data.dataQuality.emergency === "HAS_DATA" ? "BUDGET" : "UNKNOWN");
+  const income = financialValue(data.income, "LEDGER", { hasData: ledgerHasData });
+  const operatingExpense = financialValue(data.expense, "LEDGER", { hasData: ledgerHasData });
+  const netFlow = financialValue(data.netCashFlow, "LEDGER", { hasData: ledgerHasData });
+  const wealth = financialValue(data.savings.wealthBuilding, "LEDGER", { hasData: ledgerHasData });
+  const emergency = financialValue(data.emergency.current, "SINKING_FUND", { hasData: data.dataQuality.emergency === "HAS_DATA" });
+  const emergencyTarget = financialValue(data.emergency.target, "BUDGET", { hasData: data.dataQuality.emergency === "HAS_DATA" });
   const debtService = data.debtPrincipal + data.debtInterest;
   const cashOutflow = data.expense + data.debtPrincipal;
   const attention = data.budgetComparisons.filter(x => x.status !== "GOOD").length;
