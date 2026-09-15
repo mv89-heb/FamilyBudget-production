@@ -152,6 +152,7 @@ model Loan {
   user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions         Transaction[]
   amortizationEntries  LoanAmortizationEntry[]
+  liabilities          Liability[]
   @@index([userId])
 }
 model LoanAmortizationEntry {
@@ -257,8 +258,8 @@ model SinkingFund {
   monthlyContribution Decimal  @db.Decimal(12, 2)
   dueDate             DateTime?
   active              Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, active])
   @@index([userId, dueDate])
@@ -284,7 +285,7 @@ model ImportJob {
   rowsAnalyzed          Int           @default(0)
   rowsImported          Int           @default(0)
   rowsUpdated           Int           @default(0)
-  rowsSkipped            Int           @default(0)
+  rowsSkipped           Int           @default(0)
   categoriesCreated     Int           @default(0)
   paymentMethodsCreated Int           @default(0)
   errorMessage          String?
@@ -319,8 +320,8 @@ model Asset {
   currentValue  Decimal   @db.Decimal(12, 2)
   valuationDate DateTime  @default(now())
   active        Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, active])
   @@index([userId, valuationDate])
@@ -339,8 +340,10 @@ model Liability {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan           Loan?          @relation(fields: [loanId], references: [id], onDelete: SetNull)
   @@index([userId, active])
   @@index([userId, valuationDate])
+  @@index([loanId])
 }
 model NetWorthSnapshot {
   id           String   @id @default(cuid())
