@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { classifyTransactionsWithGemini } from "@/lib/gemini-classifier";
+import { classifyTransactionsWithGemini, GeminiClassificationError } from "@/lib/gemini-classifier";
 
 const MAX_CLASSIFICATION_BATCH = 100;
 const suggestSchema = z.object({ transactionIds: z.array(z.string().min(1)).min(1).max(MAX_CLASSIFICATION_BATCH) });
@@ -99,8 +99,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ error: "פעולה לא מוכרת" }, { status: 400 });
   } catch (error) {
-    if (error instanceof z.ZodError) return NextResponse.json({ error: "ניתן לנתח ולאשר עד 100 תנועות בכל פעולה" }, { status: 400 });
-    const message = error instanceof Error ? error.message : "לא ניתן לבצע את הפעולה";
-    return NextResponse.json({ error: message }, { status: 400 });
+    if (error instanceof z.ZodError) return NextResponse.json({ error: `ניתן לנתח ולאשר עד ${MAX_CLASSIFICATION_BATCH} תנועות בכל פעולה` }, { status: 400 });
+    if (error instanceof GeminiClassificationError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "לא ניתן לבצע את הפעולה" }, { status: 400 });
   }
 }
