@@ -17,13 +17,11 @@ export default function Dashboard() {
   const [drilldown, setDrilldown] = useState<{ type: DrilldownType; rows: DashboardDetailRow[]; total: number } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function openDrilldown(type: DrilldownType) {
+  async function openDrilldown(type: DrilldownType, month: string) {
     if (loading) return;
     setLoading(true);
     try {
-      const month = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit" }).formatToParts(new Date());
-      const currentMonth = `${month.find(part => part.type === "year")?.value}-${month.find(part => part.type === "month")?.value}`;
-      const response = await fetch(`/api/dashboard?month=${encodeURIComponent(currentMonth)}`, { cache: "no-store", headers: { Accept: "application/json" } });
+      const response = await fetch(`/api/dashboard?month=${encodeURIComponent(month)}`, { cache: "no-store", headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || "לא ניתן לטעון את הפירוט");
       const rows = (data.drilldown?.[type] || []) as DashboardDetailRow[];
@@ -48,7 +46,10 @@ export default function Dashboard() {
     const label = card.querySelector("span.text-xs.font-bold")?.textContent?.trim() || "";
     const type = labelToType[label];
     if (!type) return;
-    void openDrilldown(type);
+    const monthInput = event.currentTarget.querySelector('input[type="month"]') as HTMLInputElement | null;
+    const month = monthInput?.value || new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit" }).formatToParts(new Date()).reduce((value, part) => part.type === "year" ? `${part.value}-` : part.type === "month" ? `${value}${part.value}` : value, "");
+    if (!month) return;
+    void openDrilldown(type, month);
   }
 
   return <div className="dashboard-drilldown-enabled" onClick={handleDashboardClick}>
