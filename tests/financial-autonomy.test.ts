@@ -21,7 +21,7 @@ test("reconciliation difference is bank minus ledger", () => {
 });
 
 test("sinking fund contribution is spread across remaining months", () => {
-  assert.equal(calculateMonthlySinkingContribution(3600, 600, new Date("2027-09-01T00:00:00Z"), new Date("2026-09-01T00:00:00Z")), 300);
+  assert.equal(calculateMonthlySinkingContribution(3600, 600, new Date("2027-09-01T00:00:00Z"), new Date("2026-09-01T00:00:00Z")), 250);
 });
 
 test("amortization separates principal from interest", () => {
