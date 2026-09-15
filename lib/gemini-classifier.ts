@@ -7,16 +7,15 @@ const suggestionSchema = z.object({
   confidence: z.number().min(0).max(100),
   reason: z.string().trim().min(1).max(300),
   rulePattern: z.string().trim().max(100).nullable().optional(),
-  source: z.enum(["LOCAL", "RULE", "GEMINI"]).default("GEMINI"),
 });
 
-const responseSchema = z.object({ suggestions: z.array(suggestionSchema.omit({ source: true })).max(100) });
+const responseSchema = z.object({ suggestions: z.array(suggestionSchema).max(100) });
+
+type Suggestion = z.infer<typeof suggestionSchema> & { source: "LOCAL" | "RULE" | "GEMINI" };
 
 export type ClassificationTransaction = { id: string; amount: number; transactionDate: string; note: string | null };
 type ClassificationCategory = { id: string; name: string };
 type ClassificationRule = { id: string; pattern: string; matchType: "CONTAINS" | "EXACT" | "STARTS_WITH"; categoryId: string; priority: number; category: { name: string } };
-
-type Suggestion = z.infer<typeof suggestionSchema>;
 
 export class GeminiClassificationError extends Error {
   readonly code: "MISSING_API_KEY" | "RATE_LIMIT" | "TIMEOUT" | "UPSTREAM" | "INVALID_RESPONSE";
