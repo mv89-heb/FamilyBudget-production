@@ -4,13 +4,14 @@ import { useState, type MouseEvent } from "react";
 import FinancialDashboardV3 from "@/components/FinancialDashboardV3";
 import { DashboardDrilldown, type DashboardDetailRow } from "@/components/DashboardDrilldown";
 
-type DrilldownType = "income" | "expenses" | "debts" | "cashflow";
+type DrilldownType = "income" | "expenses" | "debts" | "savings" | "cashflow";
 
 const labelToType: Record<string, DrilldownType> = {
   "הכנסות": "income",
   "הוצאות שוטפות": "expenses",
   "תשלומי חוב": "debts",
   "תזרים נטו": "cashflow",
+  "חיסכון ישיר": "savings",
 };
 
 export default function Dashboard() {
@@ -29,6 +30,7 @@ export default function Dashboard() {
         income: Number(data.income || 0),
         expenses: Number(data.expense || 0),
         debts: Number(data.actualDebtPayments || 0),
+        savings: Number(data.directSavings || 0),
         cashflow: Number(data.netCashFlow || 0),
       };
       setDrilldown({ type, rows, total: totals[type] });
@@ -41,9 +43,11 @@ export default function Dashboard() {
 
   function handleDashboardClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
-    const card = target?.closest(".dashboard-drilldown-enabled .rounded-2xl.border.p-4.shadow-sm");
-    if (!(card instanceof HTMLElement)) return;
-    const label = card.querySelector("span.text-xs.font-bold")?.textContent?.trim() || "";
+    const kpi = target?.closest(".dashboard-drilldown-enabled .rounded-2xl.border.p-4.shadow-sm");
+    const savings = target?.closest(".dashboard-drilldown-enabled .rounded-xl.bg-slate-50.p-3");
+    const card = kpi instanceof HTMLElement ? kpi : savings instanceof HTMLElement ? savings : null;
+    if (!card) return;
+    const label = card.querySelector("span.text-xs.font-bold")?.textContent?.trim() || card.querySelector(".text-sm.font-bold")?.textContent?.trim() || "";
     const type = labelToType[label];
     if (!type) return;
     const monthInput = event.currentTarget.querySelector('input[type="month"]') as HTMLInputElement | null;
@@ -53,7 +57,7 @@ export default function Dashboard() {
   }
 
   return <div className="dashboard-drilldown-enabled" onClick={handleDashboardClick}>
-    <style jsx global>{`.dashboard-drilldown-enabled .rounded-2xl.border.p-4.shadow-sm { cursor: pointer; }`}</style>
+    <style jsx global>{`.dashboard-drilldown-enabled .rounded-2xl.border.p-4.shadow-sm, .dashboard-drilldown-enabled .rounded-xl.bg-slate-50.p-3 { cursor: pointer; }`}</style>
     <FinancialDashboardV3 />
     {drilldown && <DashboardDrilldown type={drilldown.type} rows={drilldown.rows} total={drilldown.total} onClose={() => setDrilldown(null)} />}
     {loading && <div className="pointer-events-none fixed bottom-5 left-5 z-40 rounded-full bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-lg">טוען פירוט…</div>}
