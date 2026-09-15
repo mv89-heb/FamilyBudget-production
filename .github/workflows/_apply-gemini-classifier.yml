@@ -47,9 +47,10 @@ jobs:
             kind: classifications[index].kind,
             sourceIndex: index,
           }));'''
-          if old not in s:
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif 'const classifications = await classificationCenter(' not in s:
               raise SystemExit('Could not find legacy classification call')
-          s = s.replace(old, new, 1)
           p.write_text(s)
           PY
 
@@ -66,4 +67,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/api/import/excel/route.ts
           git diff --cached --quiet || git commit -m "feat: use centralized Gemini classification for Excel imports"
-          git push origin feature/gemini-classification-center
+          git fetch origin feature/gemini-classification-center
+          git rebase origin/feature/gemini-classification-center
+          git push origin HEAD:feature/gemini-classification-center
