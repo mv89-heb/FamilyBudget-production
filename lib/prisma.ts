@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { buildRuleText, resolveClassificationRule } from "@/lib/rules-engine";
+import { resolveClassificationRule } from "@/lib/rules-engine";
 
 const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<typeof createPrisma> };
 
@@ -23,18 +23,17 @@ function createPrisma() {
           ]);
           if (!rules.length) return query(args);
           const categoryMap = new Map(categories.map((category) => [category.id, category.name]));
-          const categoryById = new Map(categories.map((category) => [category.id, category]));
+          const categoryIds = new Set(categories.map((category) => category.id));
           const data = args.data.map((row: any) => {
-            const categoryName = categoryMap.get(row.categoryId) ?? "";
-            const rule = resolveClassificationRule(rules, [row.note, categoryName]);
-            if (!rule || rule.categoryId === row.categoryId || !categoryById.has(rule.categoryId)) return row;
+            const rule = resolveClassificationRule(rules, [row.note, categoryMap.get(row.categoryId) ?? ""]);
+            if (!rule || rule.categoryId === row.categoryId || !categoryIds.has(rule.categoryId)) return row;
             return { ...row, categoryId: rule.categoryId };
           });
-          const matched = data.filter((row: any, index: number) => row.categoryId !== args.data[index].categoryId).length;
-          if (matched) {
-            const matchedIds = data.map((row: any, index: number) => row.categoryId !== args.data[index].categoryId ? resolveClassificationRule(rules, [row.note, categoryMap.get(args.data[index].categoryId) ?? ""])?.id : null).filter(Boolean);
-            if (matchedIds.length) await base.classificationRule.updateMany({ where: { id: { in: matchedIds as string[] } }, data: { matchCount: { increment: 1 } } });
-          }
+          const matchedRuleIds = data.map((row: any, index: number) => {
+            if (row.categoryId === args.data[index].categoryId) return null;
+            return resolveClassificationRule(rules, [args.data[index].note, categoryMap.get(args.data[index].categoryId) ?? ""])?.id ?? null;
+          }).filter(Boolean) as string[];
+          if (matchedRuleIds.length) await base.classificationRule.updateMany({ where: { id: { in: [...new Set(matchedRuleIds)] } }, data: { matchCount: { increment: 1 } } });
           return query({ ...args, data });
         },
         async create({ args, query }: any) {
