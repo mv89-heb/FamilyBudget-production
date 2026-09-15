@@ -76,7 +76,7 @@ async function classifyBatch(
     "\nהחזר JSON בלבד בפורמט: {\"suggestions\":[{\"transactionId\":\"...\",\"categoryId\":\"...\",\"confidence\":0,\"reason\":\"...\",\"rulePattern\":null}]}",
   ].join("\n");
 
-  const maxAttempts = 3;
+  const maxAttempts = 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await fetch(
@@ -87,16 +87,20 @@ async function classifyBatch(
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: "פעל כמסווג שמרני. לעולם אל תמציא קטגוריה או transactionId." }] },
             contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+              maxOutputTokens: 2048,
+            },
           }),
-          signal: AbortSignal.timeout(25_000),
+          signal: AbortSignal.timeout(20_000),
         },
       );
 
       if (!response.ok) {
         const retryable = response.status === 429 || response.status >= 500;
         if (retryable && attempt < maxAttempts) {
-          await sleep(400 * 2 ** (attempt - 1));
+          await sleep(500 * 2 ** (attempt - 1));
           continue;
         }
         if (response.status === 429) throw new GeminiClassificationError("RATE_LIMIT", "Gemini עמוס כרגע. נסה שוב בעוד כמה רגעים", 429);
@@ -121,13 +125,13 @@ async function classifyBatch(
       if (error instanceof z.ZodError) throw new GeminiClassificationError("INVALID_RESPONSE", "Gemini החזיר תשובה שלא ניתן לאמת", 502);
       if (error instanceof DOMException && error.name === "TimeoutError") {
         if (attempt < maxAttempts) {
-          await sleep(400 * 2 ** (attempt - 1));
+          await sleep(500 * 2 ** (attempt - 1));
           continue;
         }
         throw new GeminiClassificationError("TIMEOUT", "פג הזמן לניתוח ב-Gemini. נסה שוב", 504);
       }
       if (attempt < maxAttempts) {
-        await sleep(400 * 2 ** (attempt - 1));
+        await sleep(500 * 2 ** (attempt - 1));
         continue;
       }
       throw new GeminiClassificationError("UPSTREAM", "לא ניתן להשלים את הניתוח מול Gemini", 502);
@@ -141,10 +145,18 @@ export async function classifyTransactionsWithGemini(
   transactions: ClassificationTransaction[],
   categories: ClassificationCategory[],
 ) {
-  const BATCH_SIZE = 25;
+  const BATCH_SIZE = 10;
+  const MAX_CONCURRENCY = 3;
+  const batches = Array.from({ length: Math.ceil(transactions.length / BATCH_SIZE) }, (_, index) =>
+    transactions.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
+  );
   const results = [] as Awaited<ReturnType<typeof classifyBatch>>;
-  for (let index = 0; index < transactions.length; index += BATCH_SIZE) {
-    results.push(...await classifyBatch(transactions.slice(index, index + BATCH_SIZE), categories));
+
+  for (let index = 0; index < batches.length; index += MAX_CONCURRENCY) {
+    const wave = batches.slice(index, index + MAX_CONCURRENCY);
+    const waveResults = await Promise.all(wave.map((batch) => classifyBatch(batch, categories)));
+    results.push(...waveResults.flat());
   }
+
   return results;
 }
