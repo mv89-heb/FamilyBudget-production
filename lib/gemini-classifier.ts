@@ -7,13 +7,16 @@ const suggestionSchema = z.object({
   confidence: z.number().min(0).max(100),
   reason: z.string().trim().min(1).max(300),
   rulePattern: z.string().trim().max(100).nullable().optional(),
+  source: z.enum(["LOCAL", "RULE", "GEMINI"]).default("GEMINI"),
 });
 
-const responseSchema = z.object({ suggestions: z.array(suggestionSchema).max(100) });
+const responseSchema = z.object({ suggestions: z.array(suggestionSchema.omit({ source: true })).max(100) });
 
 export type ClassificationTransaction = { id: string; amount: number; transactionDate: string; note: string | null };
 type ClassificationCategory = { id: string; name: string };
 type ClassificationRule = { id: string; pattern: string; matchType: "CONTAINS" | "EXACT" | "STARTS_WITH"; categoryId: string; priority: number; category: { name: string } };
+
+type Suggestion = z.infer<typeof suggestionSchema>;
 
 export class GeminiClassificationError extends Error {
   readonly code: "MISSING_API_KEY" | "RATE_LIMIT" | "TIMEOUT" | "UPSTREAM" | "INVALID_RESPONSE";
@@ -67,7 +70,7 @@ async function loadRules(userId: string) {
 async function classifyBatch(transactions: ClassificationTransaction[], categories: ClassificationCategory[]) {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new GeminiClassificationError("MISSING_API_KEY", "שירות Gemini לא מוגדר בשרת", 503);
-  if (!transactions.length) return [];
+  if (!transactions.length) return [] as Suggestion[];
 
   const models = Array.from(new Set([process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "gemini-2.5-flash-lite"]));
   const allowedCategories = categories.map((category) => `${category.id}: ${category.name}`).join("\n");
@@ -106,7 +109,7 @@ async function classifyBatch(transactions: ClassificationTransaction[], categori
       const text = data?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
       const parsed = responseSchema.parse(extractJson(text));
       const allowed = new Set(categories.map((category) => category.id)); const transactionIds = new Set(transactions.map((transaction) => transaction.id));
-      return parsed.suggestions.filter((item) => allowed.has(item.categoryId) && transactionIds.has(item.transactionId)).map((item) => ({ ...item, confidence: Math.round(item.confidence), rulePattern: item.rulePattern?.trim() || null }));
+      return parsed.suggestions.filter((item) => allowed.has(item.categoryId) && transactionIds.has(item.transactionId)).map((item) => ({ ...item, confidence: Math.round(item.confidence), rulePattern: item.rulePattern?.trim() || null, source: "GEMINI" as const }));
     } catch (error) {
       if (error instanceof GeminiClassificationError) {
         lastError = error;
@@ -122,12 +125,12 @@ async function classifyBatch(transactions: ClassificationTransaction[], categori
 }
 
 export async function classifyTransactionsWithGemini(transactions: ClassificationTransaction[], categories: ClassificationCategory[], options: { userId: string }) {
-  const emptyResult = { suggestions: [] as Array<z.infer<typeof suggestionSchema>>, warning: undefined as string | undefined, requested: transactions.length, resolvedLocally: 0 };
+  const emptyResult = { suggestions: [] as Suggestion[], warning: undefined as string | undefined, requested: transactions.length, resolvedLocally: 0 };
   if (!transactions.length) return emptyResult;
 
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const rules = await loadRules(options.userId);
-  const suggestions: Array<z.infer<typeof suggestionSchema>> = [];
+  const suggestions: Suggestion[] = [];
   const unresolved: ClassificationTransaction[] = [];
   const matchedRuleIds = new Set<string>();
 
@@ -135,14 +138,14 @@ export async function classifyTransactionsWithGemini(transactions: Classificatio
     const deterministic = deterministicCategory(transaction.note);
     const deterministicMatch = deterministic ? findCategory(categories, deterministic.name) : undefined;
     if (deterministic && deterministicMatch) {
-      suggestions.push({ transactionId: transaction.id, categoryId: deterministicMatch.id, confidence: 100, reason: deterministic.reason, rulePattern: null });
+      suggestions.push({ transactionId: transaction.id, categoryId: deterministicMatch.id, confidence: 100, reason: deterministic.reason, rulePattern: null, source: "LOCAL" });
       continue;
     }
 
     const matchingRule = rules.find((rule) => categoryById.has(rule.categoryId) && matchesRule(transaction.note || "", rule));
     if (matchingRule) {
       matchedRuleIds.add(matchingRule.id);
-      suggestions.push({ transactionId: transaction.id, categoryId: matchingRule.categoryId, confidence: 100, reason: `נמצא כלל שמור: ${matchingRule.pattern}`, rulePattern: matchingRule.pattern });
+      suggestions.push({ transactionId: transaction.id, categoryId: matchingRule.categoryId, confidence: 100, reason: `נמצא כלל שמור: ${matchingRule.pattern}`, rulePattern: matchingRule.pattern, source: "RULE" });
       continue;
     }
     unresolved.push(transaction);
