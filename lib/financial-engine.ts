@@ -18,7 +18,8 @@ export type CreditCardFinancialTransaction = {
 
 export const EXPENSE_KINDS = ["STANDARD", "LOAN_INTEREST"] as const;
 export const INCOME_KINDS = ["STANDARD"] as const;
-export const FINANCING_KINDS = ["LOAN_RECEIVED", "LOAN_PRINCIPAL", "TRANSFER", "CASH_WITHDRAWAL"] as const;
+export const FINANCING_KINDS = ["LOAN_RECEIVED", "LOAN_PRINCIPAL"] as const;
+export const INTERNAL_MOVEMENT_KINDS = ["TRANSFER", "CASH_WITHDRAWAL"] as const;
 
 export function isTransfer(transaction: FinancialTransaction): boolean { return transaction.kind === "TRANSFER"; }
 export function isCashWithdrawal(transaction: FinancialTransaction): boolean { return transaction.kind === "CASH_WITHDRAWAL"; }
@@ -29,6 +30,7 @@ export function isRefund(transaction: FinancialTransaction): boolean { return tr
 export function isOperatingExpense(transaction: FinancialTransaction): boolean { return transaction.type === "EXPENSE" && (EXPENSE_KINDS as readonly string[]).includes(transaction.kind); }
 export function isOperatingIncome(transaction: FinancialTransaction): boolean { return transaction.type === "INCOME" && (INCOME_KINDS as readonly string[]).includes(transaction.kind); }
 export function isFinancingActivity(transaction: FinancialTransaction): boolean { return (FINANCING_KINDS as readonly string[]).includes(transaction.kind); }
+export function isInternalMovement(transaction: FinancialTransaction): boolean { return (INTERNAL_MOVEMENT_KINDS as readonly string[]).includes(transaction.kind); }
 
 /** Refunds are stored as their own transaction kind and reduce operating expense. */
 export function signedOperatingAmount(transaction: FinancialTransaction): number {
@@ -49,11 +51,7 @@ export function calculateOperatingIncome(transactions: readonly FinancialTransac
   return total;
 }
 
-/**
- * Calculates required debt cash payments. The optional predicate lets the presentation/classification
- * layer recognize legacy STANDARD rows as debt without changing their persisted accounting kind.
- * This never promotes a row to LOAN_PRINCIPAL: only explicit principal rows are principal.
- */
+/** Calculates debt service without changing the persisted accounting kind of legacy rows. */
 export function calculateDebtPayments(
   transactions: readonly FinancialTransaction[],
   isAdditionalDebt?: (transaction: FinancialTransaction) => boolean,
@@ -65,14 +63,14 @@ export function calculateDebtPayments(
   return total;
 }
 
-/** Gross financing activity for reporting. This is not the cash-flow sign. */
+/** Gross financing activity. Transfers and cash withdrawals are internal movements, not financing. */
 export function calculateFinancingActivity(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
   for (const transaction of transactions) if (isFinancingActivity(transaction)) total += Math.abs(transaction.amount);
   return total;
 }
 
-/** Net cash effect of financing/non-operating transactions. */
+/** Net cash effect of financing. Internal transfers and cash withdrawals have zero net household effect. */
 export function calculateFinancingCashFlow(transactions: readonly FinancialTransaction[]): number {
   let total = 0;
   for (const transaction of transactions) {
@@ -82,7 +80,7 @@ export function calculateFinancingCashFlow(transactions: readonly FinancialTrans
   return total;
 }
 
-/** True household cash balance for the selected period. */
+/** Net household cash movement for the selected period, not an account balance. */
 export function calculateCashFlowBalance(transactions: readonly FinancialTransaction[]): number {
   return calculateOperatingIncome(transactions) - calculateNetExpense(transactions) + calculateFinancingCashFlow(transactions);
 }
@@ -109,7 +107,7 @@ export function getIsraelMonth(date = new Date()): string {
 }
 
 export function monthStart(month: string): Date {
-  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Invalid month");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Invalid month");
   return new Date(`${month}-01T00:00:00.000Z`);
 }
 

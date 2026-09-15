@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { budgetSchema, monthSchema } from "@/lib/validation";
-import { getIsraelMonth, monthRange, isOperatingExpense } from "@/lib/financial-engine";
+import { getIsraelMonth, monthRange } from "@/lib/financial-engine";
+import { calculateBudgetSpending, calculateBudgetStatus } from "@/lib/ledger-engine";
 
 export async function GET(req: Request) {
   try {
@@ -10,6 +11,7 @@ export async function GET(req: Request) {
     const param = new URL(req.url).searchParams.get("month");
     const month = monthSchema.parse(param || getIsraelMonth());
     const { start, end } = monthRange(month);
+
     const [budgets, expenses] = await Promise.all([
       prisma.budget.findMany({ where: { userId: user.id, month: start }, include: { category: true } }),
       prisma.transaction.findMany({
@@ -25,38 +27,20 @@ export async function GET(req: Request) {
       }),
     ]);
 
-    const spent = new Map<string, number>();
-    for (const transaction of expenses) {
-      const amount = Number(transaction.amount);
-      const current = spent.get(transaction.categoryId) || 0;
-      const normalized = {
-        type: transaction.type,
-        kind: transaction.kind,
-        amount,
-        categoryId: transaction.categoryId,
-      };
-      if (isOperatingExpense(normalized)) spent.set(transaction.categoryId, current + amount);
-      else if (transaction.type === "INCOME" && transaction.kind === "REFUND") spent.set(transaction.categoryId, current - amount);
-    }
+    const spending = calculateBudgetSpending(expenses.map((transaction) => ({
+      type: transaction.type,
+      kind: transaction.kind,
+      amount: Number(transaction.amount),
+      categoryId: transaction.categoryId,
+    })));
 
-    return NextResponse.json(budgets.map((budget) => {
-      const limit = Number(budget.limit);
-      const amount = spent.get(budget.categoryId) || 0;
-      const remaining = limit - amount;
-      const percent = limit > 0 ? (amount / limit) * 100 : 0;
-      return {
-        id: budget.id,
-        categoryId: budget.categoryId,
-        categoryName: budget.category.name,
-        limit,
-        class: budget.class,
-        spent: amount,
-        remaining,
-        percent,
-        progressPercent: Math.min(100, Math.max(0, percent)),
-        overBudget: amount > limit,
-      };
-    }));
+    return NextResponse.json(budgets.map((budget) => ({
+      id: budget.id,
+      categoryId: budget.categoryId,
+      categoryName: budget.category.name,
+      class: budget.class,
+      ...calculateBudgetStatus(budget.limit, spending.get(budget.categoryId) || 0),
+    })));
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
     return NextResponse.json({ error: "חודש לא תקין" }, { status: 400 });
