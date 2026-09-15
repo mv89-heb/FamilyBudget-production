@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { classifyTransactionsWithGemini } from "@/lib/gemini-classifier";
 
-const suggestSchema = z.object({ transactionIds: z.array(z.string().min(1)).min(1).max(50) });
+const MAX_CLASSIFICATION_BATCH = 100;
+const suggestSchema = z.object({ transactionIds: z.array(z.string().min(1)).min(1).max(MAX_CLASSIFICATION_BATCH) });
 const applySchema = z.object({
   suggestions: z.array(z.object({
     transactionId: z.string().min(1),
@@ -13,7 +14,7 @@ const applySchema = z.object({
     reason: z.string().max(300).optional(),
     rulePattern: z.string().trim().max(100).nullable().optional(),
     rememberRule: z.boolean().default(false),
-  })).min(1).max(50),
+  })).min(1).max(MAX_CLASSIFICATION_BATCH),
 });
 
 const unknownNames = new Set(["אחר", "לא סווג"]);
@@ -26,7 +27,7 @@ export async function GET() {
         where: { userId: user.id, type: "EXPENSE", category: { name: { in: [...unknownNames] } } },
         select: { id: true, amount: true, transactionDate: true, note: true, categoryId: true, category: { select: { name: true } } },
         orderBy: [{ transactionDate: "desc" }, { id: "desc" }],
-        take: 100,
+        take: MAX_CLASSIFICATION_BATCH,
       }),
       prisma.category.findMany({ where: { userId: user.id, type: "EXPENSE", name: { notIn: [...unknownNames] } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     ]);
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ error: "פעולה לא מוכרת" }, { status: 400 });
   } catch (error) {
-    if (error instanceof z.ZodError) return NextResponse.json({ error: "הנתונים שנשלחו אינם תקינים" }, { status: 400 });
+    if (error instanceof z.ZodError) return NextResponse.json({ error: "ניתן לנתח ולאשר עד 100 תנועות בכל פעולה" }, { status: 400 });
     const message = error instanceof Error ? error.message : "לא ניתן לבצע את הפעולה";
     return NextResponse.json({ error: message }, { status: 400 });
   }
