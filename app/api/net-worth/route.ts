@@ -3,7 +3,6 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getFinancialSourceOfTruth } from "@/lib/financial-source";
-import { calculateNetWorth } from "@/lib/financial-control";
 
 const assetSchema = z.object({ name: z.string().trim().min(1).max(120), type: z.enum(["BANK_ACCOUNT","CASH","SAVINGS","DEPOSIT","INVESTMENT","PENSION","TRAINING_FUND","VEHICLE","PROPERTY","OTHER"]), currentValue: z.number().finite().nonnegative() });
 const liabilitySchema = z.object({ name: z.string().trim().min(1).max(120), type: z.enum(["MORTGAGE","LOAN","CREDIT_CARD","OTHER"]), currentBalance: z.number().finite().nonnegative(), interestRate: z.number().finite().nonnegative().optional(), monthlyPayment: z.number().finite().nonnegative().optional(), loanId: z.string().optional() });
@@ -29,11 +28,13 @@ export async function POST(req: Request) {
     }
     if (body?.kind === "liability") {
       const input = liabilitySchema.parse(body);
+      let currentBalance = input.currentBalance;
       if (input.loanId) {
-        const loan = await prisma.loan.findFirst({ where: { id: input.loanId, userId: user.id }, select: { id: true } });
+        const loan = await prisma.loan.findFirst({ where: { id: input.loanId, userId: user.id }, select: { id: true, outstandingAmount: true } });
         if (!loan) return NextResponse.json({ error: "הלוואה לא תקינה" }, { status: 400 });
+        if (loan.outstandingAmount != null) currentBalance = Number(loan.outstandingAmount);
       }
-      return NextResponse.json(await prisma.liability.create({ data: { ...input, userId: user.id } }), { status: 201 });
+      return NextResponse.json(await prisma.liability.create({ data: { ...input, currentBalance, userId: user.id } }), { status: 201 });
     }
     if (body?.kind === "snapshot") {
       const financial = await getFinancialSourceOfTruth(user.id);
