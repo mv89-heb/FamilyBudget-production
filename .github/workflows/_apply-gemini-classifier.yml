@@ -1,0 +1,69 @@
+name: Apply Gemini classifier wiring
+
+on:
+  push:
+    paths:
+      - .github/workflows/_apply-gemini-classifier.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/gemini-classification-center
+          fetch-depth: 0
+
+      - name: Wire classifier
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/api/import/excel/route.ts')
+          s = p.read_text()
+          old_import = 'import { requireUser } from "@/lib/auth";'
+          new_import = old_import + '\nimport { classificationCenter } from "@/lib/import/classification-center";'
+          if new_import not in s:
+              if old_import not in s:
+                  raise SystemExit('Could not find auth import')
+              s = s.replace(old_import, new_import, 1)
+          old = 'const classified = importedRows.map((row, index) => classify(row, source, index));'
+          new = '''const classifications = await classificationCenter(importedRows.map(row => ({
+            date: row.date,
+            amount: row.amount,
+            type: row.type,
+            description: row.note,
+            note: row.note,
+            existingCategory: row.categoryName,
+            paymentMethod: row.paymentMethodName,
+          })), source);
+          const classified = importedRows.map((row, index) => ({
+            ...row,
+            type: classifications[index].type,
+            categoryName: classifications[index].categoryName,
+            kind: classifications[index].kind,
+            sourceIndex: index,
+          }));'''
+          if old not in s:
+              raise SystemExit('Could not find legacy classification call')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Commit wiring
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/import/excel/route.ts
+          git diff --cached --quiet || git commit -m "feat: use centralized Gemini classification for Excel imports"
+          git push origin feature/gemini-classification-center
