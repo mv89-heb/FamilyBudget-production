@@ -7,7 +7,6 @@ export type TransactionIdentityInput = {
   amount: number;
   note?: string | null;
   paymentMethodName?: string | null;
-  kind?: string | null;
 };
 
 function normalizeText(value: string | null | undefined) {
@@ -25,7 +24,6 @@ export function transactionIdentityPayload(input: TransactionIdentityInput) {
     amount: Number(input.amount.toFixed(2)),
     note: normalizeText(input.note),
     paymentMethodName: normalizeText(input.paymentMethodName),
-    kind: normalizeText(input.kind),
   };
 }
 
