@@ -7,57 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum TransactionType {
-  INCOME
-  EXPENSE
-}
-
-enum TransactionKind {
-  STANDARD
-  TRANSFER
-  CASH_WITHDRAWAL
-  LOAN_RECEIVED
-  LOAN_PRINCIPAL
-  LOAN_INTEREST
-  REFUND
-}
-
-enum PaymentMethodType {
-  CASH
-  CARD
-  BANK_ACCOUNT
-  OTHER
-}
-
-enum ImportStatus {
-  PROCESSING
-  COMPLETED
-  FAILED
-}
-
-enum BudgetClass {
-  HARD
-  VARIABLE
-}
-
-enum IncomeType {
-  SALARY
-  BENEFIT
-  ADDITIONAL
-}
-
-enum CreditCardTransactionType {
-  CHARGE
-  REFUND
-}
-
-enum CreditCardTransactionKind {
-  PURCHASE
-  INSTALLMENT
-  REFUND
-  FEE
-  OTHER
-}
+enum TransactionType { INCOME EXPENSE }
+enum TransactionKind { STANDARD TRANSFER CASH_WITHDRAWAL LOAN_RECEIVED LOAN_PRINCIPAL LOAN_INTEREST REFUND }
+enum PaymentMethodType { CASH CARD BANK_ACCOUNT OTHER }
+enum ImportStatus { PROCESSING COMPLETED FAILED }
+enum BudgetClass { HARD VARIABLE }
+enum IncomeType { SALARY BENEFIT ADDITIONAL }
+enum CreditCardTransactionType { CHARGE REFUND }
+enum CreditCardTransactionKind { PURCHASE INSTALLMENT REFUND FEE OTHER }
+enum RuleMatchType { CONTAINS EXACT STARTS_WITH }
+enum RuleSource { USER SYSTEM GEMINI }
+enum AssetType { BANK_ACCOUNT CASH SAVINGS DEPOSIT INVESTMENT PENSION TRAINING_FUND VEHICLE PROPERTY OTHER }
+enum LiabilityType { MORTGAGE LOAN CREDIT_CARD OTHER }
+enum ReconciliationStatus { OPEN RECONCILED }
 
 model User {
   id                     String                   @id @default(cuid())
@@ -77,6 +39,11 @@ model User {
   incomeSources          IncomeSource[]
   sinkingFunds           SinkingFund[]
   financialPlan          FinancialPlan?
+  rules                  ClassificationRule[]
+  assets                 Asset[]
+  liabilities            Liability[]
+  netWorthSnapshots      NetWorthSnapshot[]
+  reconciliations        BankReconciliation[]
 }
 
 model Category {
@@ -90,60 +57,75 @@ model Category {
   transactions           Transaction[]
   creditCardTransactions CreditCardTransaction[]
   budgets                Budget[]
+  rules                  ClassificationRule[]
   @@unique([userId, name, type])
   @@index([userId, type])
 }
 
 model PaymentMethod {
-  id                     String                   @id @default(cuid())
-  userId                 String
-  type                   PaymentMethodType
-  nickname               String
-  institution            String?
-  last4                  String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  user                   User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions           Transaction[]
+  id String @id @default(cuid())
+  userId String
+  type PaymentMethodType
+  nickname String
+  institution String?
+  last4 String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
   creditCardTransactions CreditCardTransaction[]
   @@index([userId])
 }
 
 model Loan {
-  id                String        @id @default(cuid())
-  userId            String
-  name              String
-  originalAmount    Decimal       @db.Decimal(12, 2)
-  outstandingAmount Decimal?      @db.Decimal(12, 2)
-  interestRate      Decimal?      @db.Decimal(7, 4)
-  monthlyPayment    Decimal?      @db.Decimal(12, 2)
-  startDate         DateTime?
-  endDate           DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions      Transaction[]
+  id String @id @default(cuid())
+  userId String
+  name String
+  originalAmount Decimal @db.Decimal(12,2)
+  outstandingAmount Decimal? @db.Decimal(12,2)
+  interestRate Decimal? @db.Decimal(7,4)
+  monthlyPayment Decimal? @db.Decimal(12,2)
+  startDate DateTime?
+  endDate DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  amortizationEntries LoanAmortizationEntry[]
   @@index([userId])
 }
 
+model LoanAmortizationEntry {
+  id String @id @default(cuid())
+  loanId String
+  paymentDate DateTime
+  payment Decimal @db.Decimal(12,2)
+  principal Decimal @db.Decimal(12,2)
+  interest Decimal @db.Decimal(12,2)
+  balanceAfter Decimal @db.Decimal(12,2)
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  @@unique([loanId, paymentDate])
+  @@index([loanId, paymentDate])
+}
+
 model Transaction {
-  id              String          @id @default(cuid())
-  userId          String
-  type            TransactionType
-  kind            TransactionKind  @default(STANDARD)
-  amount          Decimal         @db.Decimal(12, 2)
+  id String @id @default(cuid())
+  userId String
+  type TransactionType
+  kind TransactionKind @default(STANDARD)
+  amount Decimal @db.Decimal(12,2)
   transactionDate DateTime
-  categoryId      String
+  categoryId String
   paymentMethodId String?
-  loanId          String?
-  note            String?
-  fingerprint     String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  paymentMethod   PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
-  loan            Loan?           @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  loanId String?
+  note String?
+  fingerprint String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  loan Loan? @relation(fields: [loanId], references: [id], onDelete: SetNull)
   @@index([userId, transactionDate])
   @@index([userId, type])
   @@index([userId, kind])
@@ -154,26 +136,26 @@ model Transaction {
 }
 
 model CreditCardTransaction {
-  id                String                    @id @default(cuid())
-  userId            String
-  type              CreditCardTransactionType
-  kind              CreditCardTransactionKind @default(PURCHASE)
-  amount            Decimal                   @db.Decimal(12, 2)
-  purchaseDate      DateTime
-  postingDate       DateTime?
-  merchant          String
-  note              String?
-  categoryId        String?
-  paymentMethodId   String?
-  reference         String?
-  installmentTotal  Int?
+  id String @id @default(cuid())
+  userId String
+  type CreditCardTransactionType
+  kind CreditCardTransactionKind @default(PURCHASE)
+  amount Decimal @db.Decimal(12,2)
+  purchaseDate DateTime
+  postingDate DateTime?
+  merchant String
+  note String?
+  categoryId String?
+  paymentMethodId String?
+  reference String?
+  installmentTotal Int?
   installmentNumber Int?
-  fingerprint       String
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
-  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category          Category?                 @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  paymentMethod     PaymentMethod?            @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  fingerprint String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   @@unique([userId, fingerprint])
   @@index([userId, purchaseDate])
   @@index([userId, postingDate])
@@ -184,79 +166,159 @@ model CreditCardTransaction {
 }
 
 model Budget {
-  id         String      @id @default(cuid())
-  userId     String
+  id String @id @default(cuid())
+  userId String
   categoryId String
-  month      DateTime
-  limit      Decimal     @db.Decimal(12, 2)
-  class      BudgetClass @default(VARIABLE)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category   Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  month DateTime
+  limit Decimal @db.Decimal(12,2)
+  class BudgetClass @default(VARIABLE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   @@unique([userId, categoryId, month])
   @@index([userId, month])
   @@index([userId, class])
 }
 
 model IncomeSource {
-  id            String      @id @default(cuid())
-  userId        String
-  name          String
-  type          IncomeType
-  monthlyAmount Decimal     @db.Decimal(12, 2)
-  active        Boolean     @default(true)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+  userId String
+  name String
+  type IncomeType
+  monthlyAmount Decimal @db.Decimal(12,2)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, active])
 }
 
 model SinkingFund {
-  id                  String   @id @default(cuid())
-  userId              String
-  name                String
-  targetAmount        Decimal  @db.Decimal(12, 2)
-  currentAmount       Decimal  @default(0) @db.Decimal(12, 2)
-  monthlyContribution Decimal  @db.Decimal(12, 2)
-  dueDate             DateTime?
-  active              Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+  userId String
+  name String
+  targetAmount Decimal @db.Decimal(12,2)
+  currentAmount Decimal @default(0) @db.Decimal(12,2)
+  monthlyContribution Decimal @db.Decimal(12,2)
+  dueDate DateTime?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, active])
   @@index([userId, dueDate])
 }
 
 model FinancialPlan {
-  id                    String   @id @unique @default(cuid())
-  userId                String   @unique
-  monthlySavingsTarget  Decimal  @default(0) @db.Decimal(12, 2)
-  weeklyLeisureBudget   Decimal  @default(0) @db.Decimal(12, 2)
-  emergencyFundAmount   Decimal  @default(0) @db.Decimal(12, 2)
-  emergencyTargetMonths Int      @default(3)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @unique @default(cuid())
+  userId String @unique
+  monthlySavingsTarget Decimal @default(0) @db.Decimal(12,2)
+  weeklyLeisureBudget Decimal @default(0) @db.Decimal(12,2)
+  emergencyFundAmount Decimal @default(0) @db.Decimal(12,2)
+  emergencyTargetMonths Int @default(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ImportJob {
-  id                    String        @id @default(cuid())
-  userId                String
-  fileName              String
-  fileHash              String?
-  status                ImportStatus  @default(PROCESSING)
-  rowsDetected          Int           @default(0)
-  rowsAnalyzed          Int           @default(0)
-  rowsImported          Int           @default(0)
-  rowsUpdated           Int           @default(0)
-  rowsSkipped           Int           @default(0)
-  categoriesCreated     Int           @default(0)
-  paymentMethodsCreated Int           @default(0)
-  errorMessage           String?
-  createdAt              DateTime      @default(now())
-  completedAt            DateTime?
-  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+  userId String
+  fileName String
+  fileHash String?
+  status ImportStatus @default(PROCESSING)
+  rowsDetected Int @default(0)
+  rowsAnalyzed Int @default(0)
+  rowsImported Int @default(0)
+  rowsUpdated Int @default(0)
+  rowsSkipped Int @default(0)
+  categoriesCreated Int @default(0)
+  paymentMethodsCreated Int @default(0)
+  errorMessage String?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, createdAt])
   @@unique([userId, fileHash])
+}
+
+model ClassificationRule {
+  id String @id @default(cuid())
+  userId String
+  pattern String
+  matchType RuleMatchType @default(CONTAINS)
+  categoryId String
+  source RuleSource @default(USER)
+  priority Int @default(100)
+  active Boolean @default(true)
+  matchCount Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  @@index([userId, active, priority])
+  @@unique([userId, pattern, matchType, categoryId])
+}
+
+model Asset {
+  id String @id @default(cuid())
+  userId String
+  name String
+  type AssetType
+  currentValue Decimal @db.Decimal(12,2)
+  valuationDate DateTime @default(now())
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, active])
+  @@index([userId, valuationDate])
+}
+
+model Liability {
+  id String @id @default(cuid())
+  userId String
+  name String
+  type LiabilityType
+  currentBalance Decimal @db.Decimal(12,2)
+  interestRate Decimal? @db.Decimal(7,4)
+  monthlyPayment Decimal? @db.Decimal(12,2)
+  loanId String?
+  valuationDate DateTime @default(now())
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, active])
+  @@index([userId, valuationDate])
+}
+
+model NetWorthSnapshot {
+  id String @id @default(cuid())
+  userId String
+  snapshotDate DateTime
+  assets Decimal @db.Decimal(12,2)
+  liabilities Decimal @db.Decimal(12,2)
+  netWorth Decimal @db.Decimal(12,2)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, snapshotDate])
+  @@index([userId, snapshotDate])
+}
+
+model BankReconciliation {
+  id String @id @default(cuid())
+  userId String
+  month DateTime
+  ledgerBalance Decimal @db.Decimal(12,2)
+  bankBalance Decimal @db.Decimal(12,2)
+  difference Decimal @db.Decimal(12,2)
+  status ReconciliationStatus @default(OPEN)
+  notes String?
+  reconciledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, month])
+  @@index([userId, month])
 }
