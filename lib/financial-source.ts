@@ -35,16 +35,52 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
   const principalPaid = roundMoney(summary.debtPrincipal); const interestPaid = roundMoney(summary.debtInterest);
   const manualLoans = loans.map((loan) => ({ id: loan.id, name: loan.name, originalAmount: Number(loan.originalAmount), outstandingAmount: loan.outstandingAmount == null ? null : Number(loan.outstandingAmount), interestRate: loan.interestRate == null ? null : Number(loan.interestRate), monthlyPayment: loan.monthlyPayment == null ? null : Number(loan.monthlyPayment), startDate: loan.startDate?.toISOString().slice(0, 10) ?? null, endDate: loan.endDate?.toISOString().slice(0, 10) ?? null, principalPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_PRINCIPAL").reduce((sum, row) => sum + Number(row.amount), 0)), interestPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_INTEREST").reduce((sum, row) => sum + Number(row.amount), 0)), source: "MANUAL" as const }));
   const manualLoanNames = new Set(manualLoans.map((loan) => normalizeLoanName(loan.name)));
-  const inferredGroups = new Map<string, { name: string; rows: { amount: number; transactionDate: Date }[] }>();
+
+  // Infer loans from transaction streams without collapsing distinct loans from the same lender.
+  // A lender with one recurring payment stream is one inferred loan. Multiple recurring
+  // payment bands remain separate (e.g. Bank Yahav ~₪1,100 and ~₪1,400). LOAN_PRINCIPAL
+  // rows are attached to the closest recurring payment stream, so Direct Finance's
+  // principal-classified row (~₪1,474) joins its normal ~₪1,470-₪1,480 payment stream.
+  const inferredCandidates = new Map<string, { name: string; loanRows: { amount: number; transactionDate: Date }[]; debtRows: { amount: number; transactionDate: Date }[] }>();
   for (const row of transactions) {
-    const debtCategory = row.category?.name?.trim() === "חובות והלוואות"; const loanPayment = row.kind === "LOAN_PRINCIPAL";
+    const debtCategory = row.category?.name?.trim() === "חובות והלוואות";
+    const loanPayment = row.kind === "LOAN_PRINCIPAL";
     if ((!loanPayment && !debtCategory) || row.loanId || !row.note || row.type !== "EXPENSE") continue;
-    const name = row.note.replace(/\s+/g, " ").trim(); if (!name) continue; const baseKey = normalizeLoanName(name); if (manualLoanNames.has(baseKey)) continue;
-    const amountBucket = debtCategory && !loanPayment ? Math.round(Math.abs(Number(row.amount)) / 100) * 100 : null;
-    const key = amountBucket == null ? baseKey : `${baseKey}:${amountBucket}`;
-    const group = inferredGroups.get(key) ?? { name, rows: [] }; group.rows.push({ amount: Number(row.amount), transactionDate: row.transactionDate }); inferredGroups.set(key, group);
+    const name = row.note.replace(/\s+/g, " ").trim(); if (!name) continue;
+    const baseKey = normalizeLoanName(name); if (manualLoanNames.has(baseKey)) continue;
+    const candidate = inferredCandidates.get(baseKey) ?? { name, loanRows: [], debtRows: [] };
+    const payment = { amount: Number(row.amount), transactionDate: row.transactionDate };
+    if (loanPayment) candidate.loanRows.push(payment); else candidate.debtRows.push(payment);
+    inferredCandidates.set(baseKey, candidate);
   }
-  const inferredLoans = Array.from(inferredGroups.entries()).map(([key, group]) => { const sorted = [...group.rows].sort((a, b) => b.transactionDate.getTime() - a.transactionDate.getTime()); const totalPaid = roundMoney(group.rows.reduce((sum, row) => sum + Math.abs(row.amount), 0)); const earliest = group.rows.reduce((value, row) => row.transactionDate < value ? row.transactionDate : value, group.rows[0].transactionDate); return { id: `inferred:${key}`, name: group.name, originalAmount: totalPaid, outstandingAmount: null, interestRate: null, monthlyPayment: roundMoney(Math.abs(sorted[0]?.amount ?? 0)), startDate: earliest.toISOString().slice(0, 10), endDate: null, principalPaid: totalPaid, interestPaid: 0, source: "INFERRED" as const }; });
+
+  const inferredGroups = new Map<string, { name: string; rows: { amount: number; transactionDate: Date }[] }>();
+  for (const [baseKey, candidate] of inferredCandidates) {
+    if (candidate.debtRows.length === 0) {
+      inferredGroups.set(baseKey, { name: candidate.name, rows: candidate.loanRows });
+      continue;
+    }
+    const bands = new Map<number, { amount: number; transactionDate: Date }[]>();
+    for (const row of candidate.debtRows) {
+      const bucket = Math.round(Math.abs(row.amount) / 100) * 100;
+      const rows = bands.get(bucket) ?? []; rows.push(row); bands.set(bucket, rows);
+    }
+    for (const [bucket, rows] of bands) inferredGroups.set(`${baseKey}:${bucket}`, { name: candidate.name, rows });
+    for (const row of candidate.loanRows) {
+      let closestBucket: number | null = null; let closestDistance = Number.POSITIVE_INFINITY;
+      for (const bucket of bands.keys()) {
+        const distance = Math.abs(Math.abs(row.amount) - bucket);
+        if (distance < closestDistance) { closestDistance = distance; closestBucket = bucket; }
+      }
+      if (closestBucket != null && closestDistance <= 125) {
+        const key = `${baseKey}:${closestBucket}`; const group = inferredGroups.get(key) ?? { name: candidate.name, rows: [] }; group.rows.push(row); inferredGroups.set(key, group);
+      } else {
+        const key = `${baseKey}:principal`; const group = inferredGroups.get(key) ?? { name: candidate.name, rows: [] }; group.rows.push(row); inferredGroups.set(key, group);
+      }
+    }
+  }
+
+  const inferredLoans = Array.from(inferredGroups.entries()).filter(([, group]) => group.rows.length > 0).map(([key, group]) => { const sorted = [...group.rows].sort((a, b) => b.transactionDate.getTime() - a.transactionDate.getTime()); const totalPaid = roundMoney(group.rows.reduce((sum, row) => sum + Math.abs(row.amount), 0)); const earliest = group.rows.reduce((value, row) => row.transactionDate < value ? row.transactionDate : value, group.rows[0].transactionDate); return { id: `inferred:${key}`, name: group.name, originalAmount: totalPaid, outstandingAmount: null, interestRate: null, monthlyPayment: roundMoney(Math.abs(sorted[0]?.amount ?? 0)), startDate: earliest.toISOString().slice(0, 10), endDate: null, principalPaid: totalPaid, interestPaid: 0, source: "INFERRED" as const }; });
   const allLoans = [...manualLoans, ...inferredLoans]; const loanOutstanding = manualLoans.reduce((sum, loan) => sum + (loan.outstandingAmount == null ? 0 : loan.outstandingAmount), 0); const loanPayments = allLoans.reduce((sum, loan) => sum + (loan.monthlyPayment == null ? 0 : loan.monthlyPayment), 0);
   const linkedLoanIds = new Set(loans.map((loan) => loan.id)); const loanById = new Map(loans.map((loan) => [loan.id, loan])); const standaloneLiabilities = liabilities.filter((row) => !row.loanId || !linkedLoanIds.has(row.loanId)); const standaloneLiabilityBalance = standaloneLiabilities.reduce((sum, row) => sum + Number(row.currentBalance), 0); const standaloneLiabilityPayments = standaloneLiabilities.reduce((sum, row) => sum + (row.monthlyPayment == null ? 0 : Number(row.monthlyPayment)), 0); const liabilityTotal = loanOutstanding + standaloneLiabilityBalance; const netWorth = calculateNetWorth(assets.map((row) => Number(row.currentValue)), [liabilityTotal]);
   return { month, transactionCount: currentRows.length, ledger: summary, savings, emergency, budgets: budgetComparisons, categories, insights: smart.insights, debts: { count: allLoans.length + standaloneLiabilities.length, outstanding: roundMoney(liabilityTotal), monthlyPayments: roundMoney(loanPayments + standaloneLiabilityPayments), principalPaid, interestPaid }, netWorth, assets: assets.map((row) => ({ id: row.id, name: row.name, type: row.type, currentValue: Number(row.currentValue) })), liabilities: liabilities.map((row) => { const linkedLoan = row.loanId ? loanById.get(row.loanId) : null; return { id: row.id, name: row.name, type: row.type, currentBalance: linkedLoan?.outstandingAmount == null ? Number(row.currentBalance) : Number(linkedLoan.outstandingAmount), loanId: row.loanId }; }), loans: allLoans };
