@@ -11,7 +11,8 @@ export async function GET() {
   try {
     const user = await requireUser();
     const now = new Date();
-    const start = addMonths(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), -3);
+    const currentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const start = addMonths(currentMonth, -3);
     const transactions = await prisma.transaction.findMany({ where: { userId: user.id, transactionDate: { gte: start } }, select: { type: true, kind: true, amount: true, transactionDate: true, category: { select: { name: true } }, note: true } });
     const expensesByMonth = new Map<string, number>();
     for (const row of transactions) {
@@ -27,7 +28,7 @@ export async function GET() {
     const recurringIncome = incomeSources.reduce((sum, row) => sum + Number(row.monthlyAmount), 0);
     const funds = await prisma.sinkingFund.findMany({ where: { userId: user.id, active: true }, select: { name: true, monthlyContribution: true, dueDate: true, targetAmount: true, currentAmount: true } });
     const baseContributions = funds.reduce((sum, row) => sum + Number(row.monthlyContribution), 0);
-    const months = Array.from({ length: 6 }, (_, index) => addMonths(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), index));
+    const months = Array.from({ length: 6 }, (_, index) => addMonths(currentMonth, index + 1));
     const rows = forecastMonths(months.map((date) => ({ month: monthKey(date), recurringIncome, recurringExpenses: averageExpenses, sinkingContributions: baseContributions })));
     return NextResponse.json({ rows, assumptions: { recurringIncome, averageExpenses, sinkingContributions: baseContributions }, sinkingFunds: funds });
   } catch { return NextResponse.json({ error: "לא מורשה" }, { status: 401 }); }
