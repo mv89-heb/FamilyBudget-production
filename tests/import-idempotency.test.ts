@@ -1,14 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { transactionFingerprint } from "@/lib/import/transaction-identity";
+import { transactionFingerprint, transactionIdentityPayload } from "@/lib/import/transaction-identity";
 
-test("transaction identity is independent of category", () => {
-  const base = { source: "BANK" as const, date: "2026-09-01", type: "EXPENSE" as const, amount: 42.5, note: "סופר", paymentMethodName: "כרטיס" };
-  assert.equal(transactionFingerprint(base), transactionFingerprint(base));
-  assert.equal(
-    transactionFingerprint({ ...base, note: "סופר" }),
-    transactionFingerprint({ ...base, note: "סופר" }),
-  );
+test("transaction identity excludes category and derived classification", () => {
+  const payload = transactionIdentityPayload({ source: "BANK", date: "2026-09-01", type: "EXPENSE", amount: 42.5, note: "סופר", paymentMethodName: "כרטיס" });
+  assert.equal("category" in payload, false);
+  assert.equal("kind" in payload, false);
+  assert.equal(transactionFingerprint({ source: "BANK", date: "2026-09-01", type: "EXPENSE", amount: 42.5, note: "סופר", paymentMethodName: "כרטיס" }), transactionFingerprint({ source: "BANK", date: "2026-09-01", type: "EXPENSE", amount: 42.5, note: "סופר", paymentMethodName: "כרטיס" }));
 });
 
 test("amount is part of transaction identity", () => {
