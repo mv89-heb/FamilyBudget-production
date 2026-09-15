@@ -21,6 +21,7 @@ export type LedgerSummary = {
   debtInterest: number;
   loanReceived: number;
   financingActivity: number;
+  financingCashFlow: number;
   netCashFlow: number;
 };
 
@@ -60,7 +61,8 @@ export function calculateLedgerSummary(transactions: readonly LedgerTransaction[
   const income = calculateOperatingIncome(transactions);
   const operatingExpense = calculateNetExpense(transactions);
   const financingActivity = calculateFinancingActivity(transactions);
-  const netCashFlow = calculateFinancingCashFlow(transactions) + income - operatingExpense;
+  const financingCashFlow = calculateFinancingCashFlow(transactions);
+  const netCashFlow = financingCashFlow + income - operatingExpense;
 
   return {
     income: roundMoney(income),
@@ -70,6 +72,7 @@ export function calculateLedgerSummary(transactions: readonly LedgerTransaction[
     debtInterest: roundMoney(debtInterest),
     loanReceived: roundMoney(loanReceived),
     financingActivity: roundMoney(financingActivity),
+    financingCashFlow: roundMoney(financingCashFlow),
     netCashFlow: roundMoney(netCashFlow),
   };
 }
