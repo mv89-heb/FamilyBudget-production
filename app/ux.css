@@ -4,16 +4,32 @@
 .nav-list { gap: 7px; }
 .nav-item { min-height: 46px; }
 
-/* Keep the primary action visually dominant without making every control loud. */
 .card-elevated { box-shadow: 0 5px 22px rgba(15,23,42,.035); }
 .primary-button { box-shadow: 0 4px 12px rgba(79,70,229,.12); }
 .primary-button:hover:not(:disabled) { box-shadow: 0 6px 16px rgba(79,70,229,.16); }
-
-/* Progressive disclosure affordance. */
 details > summary { -webkit-tap-highlight-color: transparent; }
 details > summary:focus-visible { outline: 2px solid #6366f1; outline-offset: 3px; border-radius: 10px; }
 
-/* Reduce motion for people who prefer a calmer interface. */
+.metric-good { background: #ecfdf5; color: #047857; }
+.metric-neutral { background: #f8fafc; color: #475569; }
+.metric-danger { background: #fef2f2; color: #dc2626; }
+.metric-primary { background: #eef2ff; color: #4f46e5; }
+
+.budget-good { background: #10b981; }
+.budget-warning { background: #f59e0b; }
+.budget-over { background: #ef4444; }
+
+.chart-dot-0, .chart-stroke-0 { color: #4f46e5; background-color: #4f46e5; }
+.chart-dot-1, .chart-stroke-1 { color: #0f766e; background-color: #0f766e; }
+.chart-dot-2, .chart-stroke-2 { color: #f59e0b; background-color: #f59e0b; }
+.chart-dot-3, .chart-stroke-3 { color: #db2777; background-color: #db2777; }
+.chart-dot-4, .chart-stroke-4 { color: #0891b2; background-color: #0891b2; }
+.chart-dot-5, .chart-stroke-5 { color: #7c3aed; background-color: #7c3aed; }
+
+.insight-positive { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
+.insight-warning { border-color: #fde68a; background: #fffbeb; color: #b45309; }
+.insight-action { border-color: #c7d2fe; background: #eef2ff; color: #4338ca; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
