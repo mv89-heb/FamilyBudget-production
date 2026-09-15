@@ -3,23 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { monthSchema } from "@/lib/validation";
 import { getIsraelMonth, monthRange } from "@/lib/financial-engine";
-import {
-  calculateBudgetComparisons,
-  calculateCategoryAmounts,
-  calculateCategoryBreakdown,
-  calculateEmergencyFund,
-  calculateLedgerSummary,
-  calculateSavingsMetrics,
-  calculateSmartInsights,
-  roundMoney,
-} from "@/lib/ledger-engine";
-import { classifyTransactionPresentation } from "@/lib/category-classifier";
-
-function monthBefore(month: string, count: number) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(Date.UTC(year, monthNumber - 1 - count, 1));
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+import { getFinancialSourceOfTruth, recentTransactionPresentation } from "@/lib/financial-source";
 
 export async function GET(req: Request) {
   try {
@@ -27,55 +11,45 @@ export async function GET(req: Request) {
     const param = new URL(req.url).searchParams.get("month");
     const month = monthSchema.parse(param || getIsraelMonth());
     const range = monthRange(month);
-    const historyStart = monthRange(monthBefore(month, 12)).start;
-
-    const [recentRows, transactions, budgets, plan] = await Promise.all([
+    const [financial, recentRows] = await Promise.all([
+      getFinancialSourceOfTruth(user.id, month),
       prisma.transaction.findMany({
         where: { userId: user.id, transactionDate: { gte: range.start, lt: range.end } },
-        select: { id: true, type: true, kind: true, amount: true, transactionDate: true, note: true, category: { select: { name: true } }, paymentMethod: { select: { nickname: true, last4: true } } },
-        orderBy: { transactionDate: "desc" }, take: 8,
+        select: {
+          id: true,
+          type: true,
+          kind: true,
+          amount: true,
+          transactionDate: true,
+          note: true,
+          category: { select: { name: true } },
+          paymentMethod: { select: { nickname: true, last4: true } },
+        },
+        orderBy: { transactionDate: "desc" },
+        take: 8,
       }),
-      prisma.transaction.findMany({
-        where: { userId: user.id, transactionDate: { gte: historyStart, lt: range.end } },
-        select: { type: true, kind: true, amount: true, transactionDate: true, categoryId: true, note: true, category: { select: { name: true } } },
-      }),
-      prisma.budget.findMany({ where: { userId: user.id, month: range.start }, select: { categoryId: true, limit: true, category: { select: { name: true } } }, orderBy: { category: { name: "asc" } } }),
-      prisma.financialPlan.findUnique({ where: { userId: user.id }, select: { emergencyFundAmount: true, emergencyTargetMonths: true } }),
     ]);
 
-    const currentRows = transactions.filter((transaction) => transaction.transactionDate >= range.start && transaction.transactionDate < range.end).map((transaction) => ({ type: transaction.type, kind: transaction.kind, amount: Number(transaction.amount), categoryId: transaction.categoryId, categoryName: transaction.category?.name, note: transaction.note, transactionDate: transaction.transactionDate }));
-    const historicalRows = transactions.filter((transaction) => transaction.transactionDate < range.start).map((transaction) => ({ type: transaction.type, kind: transaction.kind, amount: Number(transaction.amount), categoryId: transaction.categoryId, categoryName: transaction.category?.name, note: transaction.note, transactionDate: transaction.transactionDate }));
-
-    const summary = calculateLedgerSummary(currentRows);
-    const categories = calculateCategoryAmounts(currentRows);
-    const categoryBreakdown = calculateCategoryBreakdown(currentRows);
-    const savings = calculateSavingsMetrics(summary, currentRows);
-    const budgetComparisons = calculateBudgetComparisons(currentRows, budgets.map((budget) => ({ categoryId: budget.categoryId, categoryName: budget.category.name, limit: Number(budget.limit) })));
-
-    const historicalCategories = calculateCategoryAmounts(historicalRows);
-    const dominant = categories[0] ?? null;
-    const historicalDominant = dominant ? historicalCategories.find((row) => row.categoryId === dominant.categoryId || row.categoryName === dominant.categoryName) : null;
-    const historicalAverage = historicalDominant ? historicalDominant.amount / 12 : 0;
-
-    const emergencyMonths = Math.max(3, Math.min(6, plan?.emergencyTargetMonths ?? 3));
-    const hardBudgetTotal = budgets.reduce((sum, budget) => sum + Number(budget.limit), 0);
-    const emergencyTarget = hardBudgetTotal > 0 ? roundMoney(hardBudgetTotal * emergencyMonths) : roundMoney(summary.operatingExpense * emergencyMonths);
-    const emergency = calculateEmergencyFund(Number(plan?.emergencyFundAmount ?? 0), emergencyTarget);
-    const smart = calculateSmartInsights(summary, categories, {
-      availableCash: summary.netCashFlow,
-      emergencyRemaining: emergency.remaining,
-      dominantCategoryHistoricalAverage: historicalAverage,
-      currentDominantCategoryAmount: dominant?.amount,
-    }, currentRows);
-
     return NextResponse.json({
-      month, income: summary.income, expense: summary.operatingExpense, balance: summary.netCashFlow, netCashFlow: summary.netCashFlow,
-      financingActivity: summary.financingActivity, financingCashFlow: summary.financingCashFlow, debtPrincipal: summary.debtPrincipal, debtInterest: summary.debtInterest, loanReceived: summary.loanReceived, refunds: summary.refunds,
-      savings, emergency, budgetComparisons, insights: smart.insights, dominantCategory: smart.dominantCategory, byCategory: categoryBreakdown,
-      recent: recentRows.map((row) => {
-        const presentation = classifyTransactionPresentation(row.category?.name, row.note);
-        return { id: row.id, type: row.type, kind: row.kind, amount: Number(row.amount), date: row.transactionDate.toISOString(), category: row.category?.name || "לא סווג", presentationCategory: presentation.name, presentationReason: presentation.reason, paymentMethod: row.paymentMethod ? `${row.paymentMethod.nickname}${row.paymentMethod.last4 ? ` •••• ${row.paymentMethod.last4}` : ""}` : null, note: row.note };
-      }),
+      month,
+      income: financial.ledger.income,
+      expense: financial.ledger.operatingExpense,
+      balance: financial.ledger.netCashFlow,
+      netCashFlow: financial.ledger.netCashFlow,
+      financingActivity: financial.ledger.financingActivity,
+      financingCashFlow: financial.ledger.financingCashFlow,
+      debtPrincipal: financial.ledger.debtPrincipal,
+      debtInterest: financial.ledger.debtInterest,
+      loanReceived: financial.ledger.loanReceived,
+      refunds: financial.ledger.refunds,
+      savings: financial.savings,
+      emergency: financial.emergency,
+      budgetComparisons: financial.budgets,
+      insights: financial.insights,
+      byCategory: financial.categories,
+      debts: financial.debts,
+      netWorth: financial.netWorth,
+      recent: recentRows.map(recentTransactionPresentation),
     });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") return NextResponse.json({ error: "לא מורשה" }, { status: 401 });
