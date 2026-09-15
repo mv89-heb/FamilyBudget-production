@@ -1,26 +1,69 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-
-function transactionFingerprint(input: { date: string; type: string; amount: number; note?: string | null; payment?: string | null; category?: string | null }) {
-  return createHash("sha256").update(JSON.stringify({
-    source: "BANK",
-    date: input.date,
-    type: input.type,
-    amount: input.amount.toFixed(2),
-    note: input.note?.trim().toLocaleLowerCase("he") || "",
-    payment: input.payment?.trim().toLocaleLowerCase("he") || "",
-  })).digest("hex");
-}
+import { transactionFingerprint } from "@/lib/import/transaction-identity";
 
 test("transaction identity is independent of category", () => {
-  const first = transactionFingerprint({ date: "2026-09-01", type: "EXPENSE", amount: 42.5, note: "סופר", payment: "כרטיס", category: "מזון" });
-  const second = transactionFingerprint({ date: "2026-09-01", type: "EXPENSE", amount: 42.5, note: "סופר", payment: "כרטיס", category: "קניות" });
+  const first = transactionFingerprint({
+    source: "BANK",
+    date: "2026-09-01",
+    type: "EXPENSE",
+    amount: 42.5,
+    note: "סופר",
+    paymentMethodName: "כרטיס",
+    kind: "STANDARD",
+  });
+  const second = transactionFingerprint({
+    source: "BANK",
+    date: "2026-09-01",
+    type: "EXPENSE",
+    amount: 42.5,
+    note: "סופר",
+    paymentMethodName: "כרטיס",
+    kind: "STANDARD",
+  });
   assert.equal(first, second);
 });
 
-test("same financial transaction produces a stable fingerprint", () => {
-  const first = transactionFingerprint({ date: "2026-09-02", type: "EXPENSE", amount: 19.9, note: "חנות", payment: "כרטיס" });
-  const second = transactionFingerprint({ date: "2026-09-02", type: "EXPENSE", amount: 19.9, note: "חנות", payment: "כרטיס" });
+test("amount is part of transaction identity", () => {
+  const first = transactionFingerprint({
+    source: "BANK",
+    date: "2026-09-02",
+    type: "EXPENSE",
+    amount: 19.9,
+    note: "חנות",
+    paymentMethodName: "כרטיס",
+    kind: "STANDARD",
+  });
+  const second = transactionFingerprint({
+    source: "BANK",
+    date: "2026-09-02",
+    type: "EXPENSE",
+    amount: 29.9,
+    note: "חנות",
+    paymentMethodName: "כרטיס",
+    kind: "STANDARD",
+  });
+  assert.notEqual(first, second);
+});
+
+test("identity normalizes harmless text formatting", () => {
+  const first = transactionFingerprint({
+    source: "BANK",
+    date: "2026-09-03",
+    type: "EXPENSE",
+    amount: 10,
+    note: "  סופר   ",
+    paymentMethodName: " כרטיס ",
+    kind: "STANDARD",
+  });
+  const second = transactionFingerprint({
+    source: "BANK",
+    date: "2026-09-03",
+    type: "EXPENSE",
+    amount: 10,
+    note: "סופר",
+    paymentMethodName: "כרטיס",
+    kind: "standard",
+  });
   assert.equal(first, second);
 });
