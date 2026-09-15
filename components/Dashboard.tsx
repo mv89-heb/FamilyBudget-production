@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import FinancialDashboardV3 from "@/components/FinancialDashboardV3";
 import { DashboardDrilldown, type DashboardDetailRow } from "@/components/DashboardDrilldown";
 
@@ -39,7 +39,7 @@ export default function Dashboard() {
     }
   }
 
-  function handleDashboardClick(event: React.MouseEvent<HTMLDivElement>) {
+  function handleDashboardClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
     const card = target?.closest(".dashboard-drilldown-enabled .rounded-2xl.border.p-4.shadow-sm");
     if (!(card instanceof HTMLElement)) return;
@@ -47,12 +47,13 @@ export default function Dashboard() {
     const type = labelToType[label];
     if (!type) return;
     const monthInput = event.currentTarget.querySelector('input[type="month"]') as HTMLInputElement | null;
-    const month = monthInput?.value || new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit" }).formatToParts(new Date()).reduce((value, part) => part.type === "year" ? `${part.value}-` : part.type === "month" ? `${value}${part.value}` : value, "");
+    const month = monthInput?.value;
     if (!month) return;
     void openDrilldown(type, month);
   }
 
   return <div className="dashboard-drilldown-enabled" onClick={handleDashboardClick}>
+    <style jsx global>{`.dashboard-drilldown-enabled .rounded-2xl.border.p-4.shadow-sm { cursor: pointer; }`}</style>
     <FinancialDashboardV3 />
     {drilldown && <DashboardDrilldown type={drilldown.type} rows={drilldown.rows} total={drilldown.total} onClose={() => setDrilldown(null)} />}
     {loading && <div className="pointer-events-none fixed bottom-5 left-5 z-40 rounded-full bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-lg">טוען פירוט…</div>}
