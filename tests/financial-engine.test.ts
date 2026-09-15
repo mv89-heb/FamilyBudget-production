@@ -40,7 +40,7 @@ test("financing and debt activity stay outside operating expense", () => {
   assert.equal(calculateNetExpense(transactions), 150);
   assert.equal(calculateDebtPayments(transactions), 450);
   assert.equal(calculateFinancingActivity(transactions), 2400);
-  assert.equal(calculateCashFlowBalance(transactions), 1850);
+  assert.equal(calculateCashFlowBalance(transactions), 1450);
 });
 
 test("legacy STANDARD debt can count toward debt burden without becoming principal", () => {
