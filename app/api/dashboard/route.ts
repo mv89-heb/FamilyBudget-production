@@ -6,6 +6,7 @@ import { getIsraelMonth, monthRange } from "@/lib/financial-engine";
 import {
   calculateBudgetComparisons,
   calculateCategoryAmounts,
+  calculateCategoryBreakdown,
   calculateEmergencyFund,
   calculateLedgerSummary,
   calculateSavingsMetrics,
@@ -85,6 +86,7 @@ export async function GET(req: Request) {
 
     const summary = calculateLedgerSummary(currentRows);
     const categories = calculateCategoryAmounts(currentRows);
+    const categoryBreakdown = calculateCategoryBreakdown(currentRows);
     const savings = calculateSavingsMetrics(summary);
     const budgetComparisons = calculateBudgetComparisons(
       currentRows,
@@ -98,10 +100,11 @@ export async function GET(req: Request) {
       : null;
     const historicalAverage = historicalDominant ? historicalDominant.amount / 12 : 0;
 
+    const emergencyMonths = Math.max(3, Math.min(6, plan?.emergencyTargetMonths ?? 3));
     const hardBudgetTotal = budgets.reduce((sum, budget) => sum + Number(budget.limit), 0);
     const emergencyTarget = hardBudgetTotal > 0
-      ? roundMoney(hardBudgetTotal * Math.max(3, Math.min(6, plan?.emergencyTargetMonths ?? 3)))
-      : roundMoney(summary.operatingExpense * Math.max(3, Math.min(6, plan?.emergencyTargetMonths ?? 3)));
+      ? roundMoney(hardBudgetTotal * emergencyMonths)
+      : roundMoney(summary.operatingExpense * emergencyMonths);
     const emergency = calculateEmergencyFund(Number(plan?.emergencyFundAmount ?? 0), emergencyTarget);
     const smart = calculateSmartInsights(summary, categories, {
       availableCash: summary.netCashFlow,
@@ -127,7 +130,7 @@ export async function GET(req: Request) {
       budgetComparisons,
       insights: smart.insights,
       dominantCategory: smart.dominantCategory,
-      byCategory: categories.map((row) => ({ name: row.categoryName, amount: Math.max(0, row.amount), categoryId: row.categoryId })),
+      byCategory: categoryBreakdown,
       recent: recentRows.map((row) => {
         const presentation = classifyTransactionPresentation(row.category?.name, row.note);
         return {
