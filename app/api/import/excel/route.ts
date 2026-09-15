@@ -5,6 +5,7 @@ import { transactionFingerprint } from "@/lib/import/transaction-identity";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { classificationCenter } from "@/lib/import/classification-center";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -163,7 +164,22 @@ export async function POST(request: Request) {
     let analysisMode: "local" | "gemini" = "local";
     if (importedRows === null) { const geminiMap = await geminiMapHeaders(rawRows); importedRows = localNormalize(rawRows, geminiMap); analysisMode = "gemini"; }
     if (!importedRows?.length) throw new Error("NO_VALID_ROWS");
-    const classified = importedRows.map((row, index) => classify(row, source, index));
+    const classifications = await classificationCenter(importedRows.map(row => ({
+  date: row.date,
+  amount: row.amount,
+  type: row.type,
+  description: row.note,
+  note: row.note,
+  existingCategory: row.categoryName,
+  paymentMethod: row.paymentMethodName,
+})), source);
+const classified = importedRows.map((row, index) => ({
+  ...row,
+  type: classifications[index].type,
+  categoryName: classifications[index].categoryName,
+  kind: classifications[index].kind,
+  sourceIndex: index,
+}));
     const occurrence = new Map<string, number>(); const uniqueRows = classified.filter(row => { const key = JSON.stringify(baseFingerprint(row, source)); const n = occurrence.get(key) ?? 0; occurrence.set(key, n + 1); return n < 100; });
     const rowsWithFp = uniqueRows.map(row => ({ row, fp: fingerprint(row, source, occurrence.get(JSON.stringify(baseFingerprint(row, source))) ? uniqueRows.filter(x => JSON.stringify(baseFingerprint(x, source)) === JSON.stringify(baseFingerprint(row, source)) && x.sourceIndex <= row.sourceIndex).length - 1 : 0) }));
     await prisma.importJob.update({ where: { id: importId }, data: { rowsDetected: importedRows.length, rowsAnalyzed: importedRows.length, rowsSkipped: importedRows.length - rowsWithFp.length } });
