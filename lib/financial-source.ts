@@ -16,6 +16,7 @@ import { classifyTransactionPresentation } from "@/lib/category-classifier";
 
 export type FinancialSourceOfTruth = {
   month: string;
+  transactionCount: number;
   ledger: ReturnType<typeof calculateLedgerSummary>;
   savings: ReturnType<typeof calculateSavingsMetrics>;
   emergency: ReturnType<typeof calculateEmergencyFund>;
@@ -108,6 +109,7 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
 
   return {
     month,
+    transactionCount: currentRows.length,
     ledger: summary,
     savings,
     emergency,
