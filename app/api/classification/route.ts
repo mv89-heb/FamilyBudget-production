@@ -56,11 +56,20 @@ export async function POST(req: Request) {
         }),
         prisma.category.findMany({ where: { userId: user.id, type: "EXPENSE", name: { notIn: [...unknownNames] } }, select: { id: true, name: true } }),
       ]);
-      const suggestions = await classifyTransactionsWithGemini(
+
+      const result = await classifyTransactionsWithGemini(
         transactions.map((row) => ({ id: row.id, amount: Number(row.amount), transactionDate: row.transactionDate.toISOString(), note: row.note })),
         categories,
+        { userId: user.id },
       );
-      return NextResponse.json({ suggestions, classified: suggestions.length, requested: transactions.length });
+
+      return NextResponse.json({
+        suggestions: result.suggestions,
+        classified: result.suggestions.length,
+        requested: result.requested,
+        resolvedLocally: result.resolvedLocally,
+        warning: result.warning,
+      });
     }
 
     if (action === "apply") {
