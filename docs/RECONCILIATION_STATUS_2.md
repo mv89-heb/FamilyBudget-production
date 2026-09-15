@@ -1,0 +1,1 @@
+The reconciliation command is intentionally read-only. Safe backfills are identified separately from collisions; collision rows require review before any database mutation.
