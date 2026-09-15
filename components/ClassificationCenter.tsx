@@ -5,7 +5,7 @@ import { Bot, Check, CheckCircle2, Loader2, Sparkles, Tag, WandSparkles } from "
 
 type Transaction = { id: string; amount: number; transactionDate: string; note: string | null; categoryName: string };
 type Category = { id: string; name: string };
-type Suggestion = { transactionId: string; categoryId: string; confidence: number; reason: string; rulePattern: string | null; rememberRule: boolean; source: "LOCAL" | "RULE" | "GEMINI" };
+type Suggestion = { transactionId: string; categoryId: string; confidence: number; reason: string; rulePattern: string | null; rememberRule: boolean };
 
 const money = (value: number) => new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 }).format(value);
 
@@ -14,6 +14,7 @@ export default function ClassificationCenter() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [resolvedLocally, setResolvedLocally] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -27,6 +28,7 @@ export default function ClassificationCenter() {
     setCategories(data.categories);
     setSelected(data.transactions.map((row: Transaction) => row.id));
     setSuggestions([]);
+    setResolvedLocally(0);
   }
 
   useEffect(() => { load().catch((e) => setError(e instanceof Error ? e.message : "שגיאה בטעינה")); }, []);
@@ -35,9 +37,7 @@ export default function ClassificationCenter() {
   const total = transactions.reduce((sum, row) => sum + row.amount, 0);
   const suggestionById = useMemo(() => new Map(suggestions.map((item) => [item.transactionId, item])), [suggestions]);
   const unresolvedCount = selected.filter((id) => !suggestionById.has(id)).length;
-  const localResolved = suggestions.filter((item) => item.source === "LOCAL" || item.source === "RULE");
-  const localResolvedTotal = localResolved.reduce((sum, item) => sum + (byId.get(item.transactionId)?.amount || 0), 0);
-  const geminiCount = suggestions.filter((item) => item.source === "GEMINI").length;
+  const geminiCount = Math.max(0, suggestions.length - resolvedLocally);
 
   async function askGemini() {
     if (!selected.length || busy) return;
@@ -47,6 +47,7 @@ export default function ClassificationCenter() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Gemini לא הצליח לסווג את התנועות");
       setSuggestions(data.suggestions.map((item: Suggestion) => ({ ...item, rememberRule: false })));
+      setResolvedLocally(data.resolvedLocally || 0);
       const localText = data.resolvedLocally ? ` ${data.resolvedLocally} סווגו כבר מקומית לפי כללים וזיהוי ודאי.` : "";
       const warningText = data.warning ? ` ${data.warning}` : "";
       setMessage(`נמצאו הצעות ל-${data.classified} מתוך ${data.requested} תנועות.${localText}${warningText}`);
@@ -79,7 +80,7 @@ export default function ClassificationCenter() {
 
     <section className="grid gap-4 sm:grid-cols-4">
       <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">דורש סיווג</div><div className="mt-2 text-3xl font-black text-slate-900">{transactions.length}</div><div className="mt-1 text-xs text-slate-500">{money(total)} · תנועות עם "אחר"</div></div>
-      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">זוהו מקומית</div><div className="mt-2 text-3xl font-black text-emerald-700">{localResolved.length}</div><div className="mt-1 text-xs text-slate-500">{money(localResolvedTotal)} · ללא קריאת Gemini</div></div>
+      <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">זוהו מקומית</div><div className="mt-2 text-3xl font-black text-emerald-700">{resolvedLocally}</div><div className="mt-1 text-xs text-slate-500">ללא קריאת Gemini</div></div>
       <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">הצעות מ-Gemini</div><div className="mt-2 text-3xl font-black text-indigo-700">{geminiCount}</div><div className="mt-1 text-xs text-slate-500">רק לתנועות שלא נפתרו מקומית</div></div>
       <div className="card-elevated p-5"><div className="text-xs font-bold text-slate-500">הצעות ביטחון גבוה</div><div className="mt-2 text-3xl font-black text-emerald-700">{highConfidence.length}</div><div className="mt-1 text-xs text-slate-500">{money(totalSuggested)} · ≥90% ביטחון</div></div>
     </section>
@@ -98,7 +99,7 @@ export default function ClassificationCenter() {
 
       {suggestions.length > 0 && <section className="card-elevated overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-5 md:flex-row md:items-center md:justify-between"><div><h2 className="font-black text-slate-900">2. בדוק את ההצעות</h2><p className="mt-1 text-xs text-slate-500">הצעה היא רק הצעה. רק אישור שלך משנה את התנועה.</p></div><button type="button" className="primary-button inline-flex items-center gap-2" disabled={busy || !highConfidence.length} onClick={() => applySuggestions(highConfidence)}><Check size={16} /> אשר את הביטחון הגבוה</button></div>
-        <div className="divide-y divide-slate-100">{suggestions.map((item) => { const row = byId.get(item.transactionId); const categoryName = categories.find((category) => category.id === item.categoryId)?.name || "קטגוריה לא נמצאה"; return <div key={item.transactionId} className="grid gap-4 p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{row?.note || "ללא תיאור"}</strong><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.source === "LOCAL" ? "bg-emerald-50 text-emerald-700" : item.source === "RULE" ? "bg-sky-50 text-sky-700" : item.confidence >= 90 ? "bg-emerald-50 text-emerald-700" : item.confidence >= 70 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{item.source === "LOCAL" ? "זיהוי מקומי · 100%" : item.source === "RULE" ? "כלל שמור · 100%" : `${item.confidence}% ביטחון`}</span></div><p className="mt-2 text-sm text-slate-600">{item.reason}</p><div className="mt-3 flex flex-wrap items-center gap-2"><Tag size={15} className="text-slate-400" /><select value={item.categoryId} onChange={(e) => updateSuggestion(item.transactionId, { categoryId: e.target.value })} className="input-professional max-w-xs">{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{item.rulePattern && <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={item.rememberRule} onChange={(e) => updateSuggestion(item.transactionId, { rememberRule: e.target.checked })} /> זכור את הסיווג הזה להבא ({item.rulePattern})</label>}</div></div><div className="flex items-start justify-between gap-4 md:flex-col md:items-end"><strong className="text-sm text-slate-900">{row ? money(row.amount) : ""}</strong><button type="button" className="secondary-button inline-flex items-center gap-2" disabled={busy} onClick={() => applySuggestions([item])}><Check size={15} /> אשר</button></div></div>; })}</div>
+        <div className="divide-y divide-slate-100">{suggestions.map((item) => { const row = byId.get(item.transactionId); const categoryName = categories.find((category) => category.id === item.categoryId)?.name || "קטגוריה לא נמצאה"; return <div key={item.transactionId} className="grid gap-4 p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{row?.note || "ללא תיאור"}</strong><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.confidence >= 90 ? "bg-emerald-50 text-emerald-700" : item.confidence >= 70 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{item.confidence}% ביטחון</span></div><p className="mt-2 text-sm text-slate-600">{item.reason}</p><div className="mt-3 flex flex-wrap items-center gap-2"><Tag size={15} className="text-slate-400" /><select value={item.categoryId} onChange={(e) => updateSuggestion(item.transactionId, { categoryId: e.target.value })} className="input-professional max-w-xs">{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{item.rulePattern && <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={item.rememberRule} onChange={(e) => updateSuggestion(item.transactionId, { rememberRule: e.target.checked })} /> זכור את הסיווג הזה להבא ({item.rulePattern})</label>}</div></div><div className="flex items-start justify-between gap-4 md:flex-col md:items-end"><strong className="text-sm text-slate-900">{row ? money(row.amount) : ""}</strong><button type="button" className="secondary-button inline-flex items-center gap-2" disabled={busy} onClick={() => applySuggestions([item])}><Check size={15} /> אשר</button></div></div>; })}</div>
       </section>}
     </>}
 
