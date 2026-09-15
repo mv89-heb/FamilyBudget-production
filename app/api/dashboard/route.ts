@@ -32,121 +32,49 @@ export async function GET(req: Request) {
     const [recentRows, transactions, budgets, plan] = await Promise.all([
       prisma.transaction.findMany({
         where: { userId: user.id, transactionDate: { gte: range.start, lt: range.end } },
-        select: {
-          id: true,
-          type: true,
-          kind: true,
-          amount: true,
-          transactionDate: true,
-          note: true,
-          category: { select: { name: true } },
-          paymentMethod: { select: { nickname: true, last4: true } },
-        },
-        orderBy: { transactionDate: "desc" },
-        take: 8,
+        select: { id: true, type: true, kind: true, amount: true, transactionDate: true, note: true, category: { select: { name: true } }, paymentMethod: { select: { nickname: true, last4: true } } },
+        orderBy: { transactionDate: "desc" }, take: 8,
       }),
       prisma.transaction.findMany({
         where: { userId: user.id, transactionDate: { gte: historyStart, lt: range.end } },
-        select: {
-          type: true,
-          kind: true,
-          amount: true,
-          transactionDate: true,
-          categoryId: true,
-          category: { select: { name: true } },
-        },
+        select: { type: true, kind: true, amount: true, transactionDate: true, categoryId: true, note: true, category: { select: { name: true } } },
       }),
-      prisma.budget.findMany({
-        where: { userId: user.id, month: range.start },
-        select: { categoryId: true, limit: true, category: { select: { name: true } } },
-        orderBy: { category: { name: "asc" } },
-      }),
+      prisma.budget.findMany({ where: { userId: user.id, month: range.start }, select: { categoryId: true, limit: true, category: { select: { name: true } } }, orderBy: { category: { name: "asc" } } }),
       prisma.financialPlan.findUnique({ where: { userId: user.id }, select: { emergencyFundAmount: true, emergencyTargetMonths: true } }),
     ]);
 
-    const currentRows = transactions
-      .filter((transaction) => transaction.transactionDate >= range.start && transaction.transactionDate < range.end)
-      .map((transaction) => ({
-        type: transaction.type,
-        kind: transaction.kind,
-        amount: Number(transaction.amount),
-        categoryId: transaction.categoryId,
-        categoryName: transaction.category?.name,
-      }));
-
-    const historicalRows = transactions
-      .filter((transaction) => transaction.transactionDate < range.start)
-      .map((transaction) => ({
-        type: transaction.type,
-        kind: transaction.kind,
-        amount: Number(transaction.amount),
-        categoryId: transaction.categoryId,
-        categoryName: transaction.category?.name,
-      }));
+    const currentRows = transactions.filter((transaction) => transaction.transactionDate >= range.start && transaction.transactionDate < range.end).map((transaction) => ({ type: transaction.type, kind: transaction.kind, amount: Number(transaction.amount), categoryId: transaction.categoryId, categoryName: transaction.category?.name, note: transaction.note, transactionDate: transaction.transactionDate }));
+    const historicalRows = transactions.filter((transaction) => transaction.transactionDate < range.start).map((transaction) => ({ type: transaction.type, kind: transaction.kind, amount: Number(transaction.amount), categoryId: transaction.categoryId, categoryName: transaction.category?.name, note: transaction.note, transactionDate: transaction.transactionDate }));
 
     const summary = calculateLedgerSummary(currentRows);
     const categories = calculateCategoryAmounts(currentRows);
     const categoryBreakdown = calculateCategoryBreakdown(currentRows);
-    const savings = calculateSavingsMetrics(summary);
-    const budgetComparisons = calculateBudgetComparisons(
-      currentRows,
-      budgets.map((budget) => ({ categoryId: budget.categoryId, categoryName: budget.category.name, limit: Number(budget.limit) })),
-    );
+    const savings = calculateSavingsMetrics(summary, currentRows);
+    const budgetComparisons = calculateBudgetComparisons(currentRows, budgets.map((budget) => ({ categoryId: budget.categoryId, categoryName: budget.category.name, limit: Number(budget.limit) })));
 
     const historicalCategories = calculateCategoryAmounts(historicalRows);
     const dominant = categories[0] ?? null;
-    const historicalDominant = dominant
-      ? historicalCategories.find((row) => row.categoryId === dominant.categoryId || row.categoryName === dominant.categoryName)
-      : null;
+    const historicalDominant = dominant ? historicalCategories.find((row) => row.categoryId === dominant.categoryId || row.categoryName === dominant.categoryName) : null;
     const historicalAverage = historicalDominant ? historicalDominant.amount / 12 : 0;
 
     const emergencyMonths = Math.max(3, Math.min(6, plan?.emergencyTargetMonths ?? 3));
     const hardBudgetTotal = budgets.reduce((sum, budget) => sum + Number(budget.limit), 0);
-    const emergencyTarget = hardBudgetTotal > 0
-      ? roundMoney(hardBudgetTotal * emergencyMonths)
-      : roundMoney(summary.operatingExpense * emergencyMonths);
+    const emergencyTarget = hardBudgetTotal > 0 ? roundMoney(hardBudgetTotal * emergencyMonths) : roundMoney(summary.operatingExpense * emergencyMonths);
     const emergency = calculateEmergencyFund(Number(plan?.emergencyFundAmount ?? 0), emergencyTarget);
     const smart = calculateSmartInsights(summary, categories, {
       availableCash: summary.netCashFlow,
       emergencyRemaining: emergency.remaining,
       dominantCategoryHistoricalAverage: historicalAverage,
       currentDominantCategoryAmount: dominant?.amount,
-    });
+    }, currentRows);
 
     return NextResponse.json({
-      month,
-      income: summary.income,
-      expense: summary.operatingExpense,
-      balance: summary.netCashFlow,
-      netCashFlow: summary.netCashFlow,
-      financingActivity: summary.financingActivity,
-      financingCashFlow: summary.financingCashFlow,
-      debtPrincipal: summary.debtPrincipal,
-      debtInterest: summary.debtInterest,
-      loanReceived: summary.loanReceived,
-      refunds: summary.refunds,
-      savings,
-      emergency,
-      budgetComparisons,
-      insights: smart.insights,
-      dominantCategory: smart.dominantCategory,
-      byCategory: categoryBreakdown,
+      month, income: summary.income, expense: summary.operatingExpense, balance: summary.netCashFlow, netCashFlow: summary.netCashFlow,
+      financingActivity: summary.financingActivity, financingCashFlow: summary.financingCashFlow, debtPrincipal: summary.debtPrincipal, debtInterest: summary.debtInterest, loanReceived: summary.loanReceived, refunds: summary.refunds,
+      savings, emergency, budgetComparisons, insights: smart.insights, dominantCategory: smart.dominantCategory, byCategory: categoryBreakdown,
       recent: recentRows.map((row) => {
         const presentation = classifyTransactionPresentation(row.category?.name, row.note);
-        return {
-          id: row.id,
-          type: row.type,
-          kind: row.kind,
-          amount: Number(row.amount),
-          date: row.transactionDate.toISOString(),
-          category: row.category?.name || "לא סווג",
-          presentationCategory: presentation.name,
-          presentationReason: presentation.reason,
-          paymentMethod: row.paymentMethod
-            ? `${row.paymentMethod.nickname}${row.paymentMethod.last4 ? ` •••• ${row.paymentMethod.last4}` : ""}`
-            : null,
-          note: row.note,
-        };
+        return { id: row.id, type: row.type, kind: row.kind, amount: Number(row.amount), date: row.transactionDate.toISOString(), category: row.category?.name || "לא סווג", presentationCategory: presentation.name, presentationReason: presentation.reason, paymentMethod: row.paymentMethod ? `${row.paymentMethod.nickname}${row.paymentMethod.last4 ? ` •••• ${row.paymentMethod.last4}` : ""}` : null, note: row.note };
       }),
     });
   } catch (error) {
