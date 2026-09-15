@@ -9,9 +9,11 @@ function monthRange(month: string) {
   const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
   return { start, end };
 }
+
 const transactionInclude = { category: { select: { id: true, name: true, type: true } }, paymentMethod: { select: { id: true, nickname: true, last4: true, type: true } }, loan: { select: { id: true, name: true } } } as const;
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 100;
+
 function pagination(searchParams: URLSearchParams) {
   const rawPage = Number.parseInt(searchParams.get("page") || "1", 10); const rawLimit = Number.parseInt(searchParams.get("limit") || String(DEFAULT_PAGE_SIZE), 10);
   const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1; const limit = Number.isFinite(rawLimit) ? Math.min(MAX_PAGE_SIZE, Math.max(1, rawLimit)) : DEFAULT_PAGE_SIZE;
@@ -34,8 +36,25 @@ export async function POST(req: Request) {
     const category = await prisma.category.findFirst({ where: { id: input.categoryId, userId: user.id, type: input.type as TransactionType } });
     if (!category) return NextResponse.json({ error: "קטגוריה לא תקינה" }, { status: 400 });
     if (input.paymentMethodId) { const method = await prisma.paymentMethod.findFirst({ where: { id: input.paymentMethodId, userId: user.id } }); if (!method) return NextResponse.json({ error: "אמצעי תשלום לא תקין" }, { status: 400 }); }
-    if (input.loanId) { const loan = await prisma.loan.findFirst({ where: { id: input.loanId, userId: user.id }, select: { id: true } }); if (!loan) return NextResponse.json({ error: "הלוואה לא תקינה" }, { status: 400 }); }
-    const row = await prisma.transaction.create({ data: { userId: user.id, type: input.type, kind: input.kind as TransactionKind, amount: input.amount, transactionDate: new Date(`${input.transactionDate}T00:00:00.000Z`), categoryId: input.categoryId, paymentMethodId: input.paymentMethodId || null, loanId: input.loanId || null, note: input.note || null }, include: { category: true, paymentMethod: true, loan: true } });
+
+    const loan = input.loanId
+      ? await prisma.loan.findFirst({ where: { id: input.loanId, userId: user.id }, select: { id: true, outstandingAmount: true } })
+      : null;
+    if (input.loanId && !loan) return NextResponse.json({ error: "הלוואה לא תקינה" }, { status: 400 });
+
+    const amount = Number(input.amount);
+    const row = await prisma.$transaction(async (tx) => {
+      const created = await tx.transaction.create({ data: { userId: user.id, type: input.type, kind: input.kind as TransactionKind, amount: input.amount, transactionDate: new Date(`${input.transactionDate}T00:00:00.000Z`), categoryId: input.categoryId, paymentMethodId: input.paymentMethodId || null, loanId: input.loanId || null, note: input.note || null }, include: { category: true, paymentMethod: true, loan: true } });
+
+      if (loan && input.kind === "LOAN_PRINCIPAL" && loan.outstandingAmount != null) {
+        const nextBalance = Math.max(0, Number(loan.outstandingAmount) - Math.abs(amount));
+        await tx.loan.update({ where: { id: loan.id }, data: { outstandingAmount: nextBalance } });
+        await tx.liability.updateMany({ where: { userId: user.id, loanId: loan.id, active: true }, data: { currentBalance: nextBalance, valuationDate: new Date() } });
+      }
+
+      return created;
+    });
+
     return NextResponse.json(row, { status: 201 });
   } catch { return NextResponse.json({ error: "לא ניתן ליצור תנועה" }, { status: 400 }); }
 }
