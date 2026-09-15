@@ -26,6 +26,19 @@ export type FinancialSourceOfTruth = {
   netWorth: ReturnType<typeof calculateNetWorth>;
   assets: { id: string; name: string; type: string; currentValue: number }[];
   liabilities: { id: string; name: string; type: string; currentBalance: number; loanId: string | null }[];
+  loans: {
+    id: string;
+    name: string;
+    originalAmount: number;
+    outstandingAmount: number | null;
+    interestRate: number | null;
+    monthlyPayment: number | null;
+    startDate: string | null;
+    endDate: string | null;
+    principalPaid: number;
+    interestPaid: number;
+    source: "MANUAL";
+  }[];
 };
 
 function toLedgerTransaction(row: {
@@ -49,7 +62,7 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
     prisma.transaction.findMany({ where: { userId, transactionDate: { gte: historyStart, lt: range.end } }, select: { type: true, kind: true, amount: true, transactionDate: true, categoryId: true, note: true, category: { select: { name: true } } } }),
     prisma.budget.findMany({ where: { userId, month: range.start }, select: { categoryId: true, limit: true, class: true, category: { select: { name: true } } }, orderBy: { category: { name: "asc" } } }),
     prisma.financialPlan.findUnique({ where: { userId }, select: { emergencyFundAmount: true, emergencyTargetMonths: true } }),
-    prisma.loan.findMany({ where: { userId }, select: { id: true, outstandingAmount: true, monthlyPayment: true, transactions: { select: { kind: true, amount: true, transactionDate: true } } } }),
+    prisma.loan.findMany({ where: { userId }, select: { id: true, name: true, originalAmount: true, outstandingAmount: true, interestRate: true, monthlyPayment: true, startDate: true, endDate: true, transactions: { select: { kind: true, amount: true, transactionDate: true } } } }),
     prisma.asset.findMany({ where: { userId, active: true }, select: { id: true, name: true, type: true, currentValue: true } }),
     prisma.liability.findMany({ where: { userId, active: true }, select: { id: true, name: true, type: true, currentBalance: true, monthlyPayment: true, loanId: true } }),
     prisma.sinkingFund.findMany({ where: { userId, active: true, name: { contains: "חירום" } }, select: { currentAmount: true } }),
@@ -80,12 +93,13 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
     currentDominantCategoryAmount: dominant?.amount,
   }, currentRows);
 
-  const principalPaid = loans.reduce((sum, loan) => sum + loan.transactions.filter((row) => row.kind === "LOAN_PRINCIPAL" && row.transactionDate >= range.start && row.transactionDate < range.end).reduce((inner, row) => inner + Number(row.amount), 0), 0);
-  const interestPaid = loans.reduce((sum, loan) => sum + loan.transactions.filter((row) => row.kind === "LOAN_INTEREST" && row.transactionDate >= range.start && row.transactionDate < range.end).reduce((inner, row) => inner + Number(row.amount), 0), 0);
+  const principalPaid = roundMoney(summary.debtPrincipal);
+  const interestPaid = roundMoney(summary.debtInterest);
   const loanOutstanding = loans.reduce((sum, loan) => sum + (loan.outstandingAmount == null ? 0 : Number(loan.outstandingAmount)), 0);
   const loanPayments = loans.reduce((sum, loan) => sum + (loan.monthlyPayment == null ? 0 : Number(loan.monthlyPayment)), 0);
 
   const linkedLoanIds = new Set(loans.map((loan) => loan.id));
+  const loanById = new Map(loans.map((loan) => [loan.id, loan]));
   const standaloneLiabilities = liabilities.filter((row) => !row.loanId || !linkedLoanIds.has(row.loanId));
   const standaloneLiabilityBalance = standaloneLiabilities.reduce((sum, row) => sum + Number(row.currentBalance), 0);
   const standaloneLiabilityPayments = standaloneLiabilities.reduce((sum, row) => sum + (row.monthlyPayment == null ? 0 : Number(row.monthlyPayment)), 0);
@@ -100,10 +114,26 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
     budgets: budgetComparisons,
     categories,
     insights: smart.insights,
-    debts: { count: loans.length + standaloneLiabilities.length, outstanding: roundMoney(liabilityTotal), monthlyPayments: roundMoney(loanPayments + standaloneLiabilityPayments), principalPaid: roundMoney(principalPaid), interestPaid: roundMoney(interestPaid) },
+    debts: { count: loans.length + standaloneLiabilities.length, outstanding: roundMoney(liabilityTotal), monthlyPayments: roundMoney(loanPayments + standaloneLiabilityPayments), principalPaid, interestPaid },
     netWorth,
     assets: assets.map((row) => ({ id: row.id, name: row.name, type: row.type, currentValue: Number(row.currentValue) })),
-    liabilities: liabilities.map((row) => ({ id: row.id, name: row.name, type: row.type, currentBalance: Number(row.currentBalance), loanId: row.loanId })),
+    liabilities: liabilities.map((row) => {
+      const linkedLoan = row.loanId ? loanById.get(row.loanId) : null;
+      return { id: row.id, name: row.name, type: row.type, currentBalance: linkedLoan?.outstandingAmount == null ? Number(row.currentBalance) : Number(linkedLoan.outstandingAmount), loanId: row.loanId };
+    }),
+    loans: loans.map((loan) => ({
+      id: loan.id,
+      name: loan.name,
+      originalAmount: Number(loan.originalAmount),
+      outstandingAmount: loan.outstandingAmount == null ? null : Number(loan.outstandingAmount),
+      interestRate: loan.interestRate == null ? null : Number(loan.interestRate),
+      monthlyPayment: loan.monthlyPayment == null ? null : Number(loan.monthlyPayment),
+      startDate: loan.startDate?.toISOString().slice(0, 10) ?? null,
+      endDate: loan.endDate?.toISOString().slice(0, 10) ?? null,
+      principalPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_PRINCIPAL").reduce((sum, row) => sum + Number(row.amount), 0)),
+      interestPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_INTEREST").reduce((sum, row) => sum + Number(row.amount), 0)),
+      source: "MANUAL" as const,
+    })),
   };
 }
 
