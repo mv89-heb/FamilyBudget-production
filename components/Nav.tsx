@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, LogOut, Settings, Wallet, CalendarDays, Layers3, ShieldCheck } from "lucide-react";
+import { BarChart3, LogOut, Settings, Wallet, CalendarDays, Layers3, ShieldCheck, Sparkles } from "lucide-react";
 import LogoutButton from "./LogoutButton";
 
 type NavProps = { name: string };
@@ -13,6 +13,7 @@ const items: Item[] = [
   { href: "/transactions", label: "תנועות וייבוא", icon: Layers3 },
   { href: "/plan", label: "תוכנית החודש", icon: CalendarDays },
   { href: "/loans", label: "התחייבויות וקופות", icon: Wallet },
+  { href: "/classification", label: "סיווג חכם", icon: Sparkles },
   { href: "/financial-control", label: "בקרה פיננסית", icon: ShieldCheck },
 ];
 
