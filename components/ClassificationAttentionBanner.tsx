@@ -51,10 +51,10 @@ export default function ClassificationAttentionBanner() {
           </div>
         </div>
         <Link
-          href="/classification"
+          href="/classification?autostart=1"
           className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700"
         >
-          לסיווג עם Gemini
+          סווג עם Gemini
         </Link>
       </div>
     </div>
