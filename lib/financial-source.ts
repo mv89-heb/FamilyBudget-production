@@ -55,7 +55,7 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
     prisma.sinkingFund.findMany({ where: { userId, active: true, name: { contains: "חירום" } }, select: { currentAmount: true } }),
   ]);
 
-  const allRows = transactions.map(toLedgerTransaction);
+  const allRows = transactions.map(toLedgerTransaction).filter((row): row is LedgerTransaction & { transactionDate: Date } => row.transactionDate instanceof Date);
   const currentRows = allRows.filter((row) => row.transactionDate >= range.start && row.transactionDate < range.end);
   const summary = calculateLedgerSummary(currentRows);
   const categories = calculateCategoryBreakdown(currentRows);
