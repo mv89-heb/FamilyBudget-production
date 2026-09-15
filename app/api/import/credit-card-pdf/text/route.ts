@@ -10,7 +10,8 @@ import { creditCardIdentityDateRange, creditCardIdentityMatches } from "@/lib/im
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const MAX_TEXT_CHARS = MAX_SANITIZED_IMPORT_CHARS;
-const GEMINI_TIMEOUT_MS = 20_000;
+const GEMINI_TIMEOUT_MS = 15_000;
+const GEMINI_MAX_PARALLEL = 3;
 const GEMINI_MODELS = [process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "gemini-2.5-flash-lite"].filter((model, index, models) => model && models.indexOf(model) === index);
 const rowSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), postingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), amount: z.number().finite().positive().max(999999999), type: z.enum(["CHARGE", "REFUND"]), kind: z.enum(["PURCHASE", "INSTALLMENT", "REFUND", "FEE", "OTHER"]), merchant: z.string().trim().min(1).max(160), note: z.string().trim().max(500).nullable().optional(), installmentNumber: z.number().int().positive().nullable().optional(), installmentTotal: z.number().int().positive().nullable().optional(), categoryName: z.string().trim().min(1).max(60).optional(), paymentMethodName: z.string().trim().max(80).nullable().optional() });
 const responseSchema = z.object({ rows: z.array(rowSchema).max(5000) });
@@ -38,7 +39,21 @@ export async function POST(req: Request) {
       ? await prisma.importJob.update({ where: { id: existing.id }, data: { status: "PROCESSING", errorMessage: null, completedAt: null, rowsDetected: 0, rowsAnalyzed: 0, rowsImported: 0, rowsUpdated: 0, rowsSkipped: 0, categoriesCreated: 0 } })
       : await prisma.importJob.create({ data: { userId: user.id, fileName: "CREDIT_CARD_OCR", fileHash: sourceHash, status: "PROCESSING" } });
     try {
-      const rows = await requestGemini(sanitized); const uniqueRows = Array.from(new Map(rows.map(row => [fingerprint(row), row])).values()); if (!uniqueRows.length) throw new Error("NO_VALID_ROWS");
+      const chunks: string[] = [];
+      for (let start = 0; start < sanitized.length; start += MAX_TEXT_CHARS) chunks.push(sanitized.slice(start, start + MAX_TEXT_CHARS));
+      const geminiFailures: string[] = [];
+      const rows: CardRow[] = [];
+      for (let start = 0; start < chunks.length; start += GEMINI_MAX_PARALLEL) {
+        const batch = chunks.slice(start, start + GEMINI_MAX_PARALLEL);
+        const results = await Promise.allSettled(batch.map(chunk => requestGemini(chunk)));
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") rows.push(...result.value);
+          else geminiFailures.push(result.reason instanceof Error ? result.reason.message : `GEMINI_CHUNK_${start + index + 1}_FAILED`);
+        });
+      }
+      const uniqueRows = Array.from(new Map(rows.map(row => [fingerprint(row), row])).values());
+      if (!uniqueRows.length) throw new Error(geminiFailures[0] || "NO_VALID_ROWS");
+      const partial = geminiFailures.length > 0;
       const fingerprints = uniqueRows.map(fingerprint); const existingRows = await prisma.creditCardTransaction.findMany({ where: { userId: user.id, fingerprint: { in: fingerprints } }, select: { id: true, fingerprint: true } }); const existingByFingerprint = new Map(existingRows.map(row => [row.fingerprint, row.id])); const categories = await prisma.category.findMany({ where: { userId: user.id } }); const categoryMap = new Map(categories.map(category => [`${category.type}:${category.name.trim().toLocaleLowerCase("he")}`, category])); const methods = await prisma.paymentMethod.findMany({ where: { userId: user.id, type: "CARD" }, select: { id: true, nickname: true, last4: true } });
       let createdRows = 0, updatedRows = 0, identityMatchedRows = 0, createdCategories = 0;
       await prisma.$transaction(async tx => { for (const row of uniqueRows) {
@@ -49,8 +64,9 @@ export async function POST(req: Request) {
         const identityMatches = candidates.filter(candidate => creditCardIdentityMatches({ date: row.date, type: row.type, amount: row.amount, merchant: row.merchant, note: row.note, installmentNumber: row.installmentNumber, installmentTotal: row.installmentTotal, paymentMethodId: matchedMethod?.id || null }, candidate));
         if (identityMatches.length === 1) { await tx.creditCardTransaction.update({ where: { id: identityMatches[0].id }, data: { ...data, fingerprint: identityMatches[0].fingerprint } }); updatedRows++; identityMatchedRows++; } else { await tx.creditCardTransaction.create({ data: { ...data, userId: user.id } }); createdRows++; }
       } });
-      await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: uniqueRows.length, rowsAnalyzed: uniqueRows.length, rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), categoriesCreated: createdCategories, completedAt: new Date() } });
-      return NextResponse.json({ success: true, source: "CREDIT_CARD_OCR", rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), identityMatched: identityMatchedRows, reprocessed: !!existing, privacy: "ocr-in-browser-sanitized-before-gemini" });
+      const warnings = partial ? [`GEMINI_PARTIAL:${[...new Set(geminiFailures)].slice(0, 3).join(",")}`] : [];
+      await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: uniqueRows.length, rowsAnalyzed: uniqueRows.length, rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), categoriesCreated: createdCategories, errorMessage: warnings.length ? warnings.join("|") : null, completedAt: new Date() } });
+      return NextResponse.json({ success: true, partial, warnings, source: "CREDIT_CARD_OCR", rowsImported: createdRows, rowsUpdated: updatedRows, rowsSkipped: Math.max(0, rows.length - uniqueRows.length), identityMatched: identityMatchedRows, reprocessed: !!existing, privacy: "ocr-in-browser-sanitized-before-gemini" });
     } catch (error) { await prisma.importJob.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: error instanceof Error ? error.message.slice(0, 500) : "IMPORT_FAILED" } }).catch(() => undefined); throw error; }
   } catch (error) {
     const messages: Record<string, [string, number]> = { GEMINI_NOT_CONFIGURED: ["שירות Gemini לא מוגדר בשרת.", 503], GEMINI_AUTH_FAILED: ["מפתח Gemini אינו תקין או אינו מורשה.", 502], GEMINI_RATE_LIMITED: ["Gemini הגיע למגבלת הבקשות.", 429], GEMINI_TIMEOUT: ["Gemini לא הגיב בזמן.", 504], GEMINI_EMPTY_RESPONSE: ["Gemini לא החזיר נתונים.", 502], GEMINI_REQUEST_FAILED: ["הבקשה ל-Gemini נכשלה.", 502], NO_VALID_ROWS: ["לא נמצאו עסקאות אשראי תקינות ב-OCR.", 422] };
