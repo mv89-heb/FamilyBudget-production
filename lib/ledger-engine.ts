@@ -241,17 +241,18 @@ export function calculateAutoBudgets(
     if (values) values[index] += positiveAmount(transaction.amount);
   }
 
-  return [...totals.entries()]
-    .map(([categoryId, values]) => {
-      const category = categoryMap.get(categoryId);
-      if (!category) return null;
-      const averageLast3Months = roundMoney(values.reduce((sum, value) => sum + value, 0) / 3);
-      if (averageLast3Months < minimumAverage) return null;
-      const limit = roundMoney(averageLast3Months * (1 + safetyBufferPercent / 100));
-      return { categoryId, categoryName: category.categoryName, averageLast3Months, limit, class: "VARIABLE" as const };
-    })
-    .filter((row): row is AutoBudget => row !== null && row.limit > 0)
-    .sort((a, b) => b.limit - a.limit);
+  const autoBudgets: AutoBudget[] = [];
+  for (const [categoryId, values] of totals.entries()) {
+    const category = categoryMap.get(categoryId);
+    if (!category) continue;
+    const averageLast3Months = roundMoney(values.reduce((sum, value) => sum + value, 0) / 3);
+    if (averageLast3Months < minimumAverage) continue;
+    const limit = roundMoney(averageLast3Months * (1 + safetyBufferPercent / 100));
+    if (limit <= 0) continue;
+    autoBudgets.push({ categoryId, categoryName: category.categoryName, averageLast3Months, limit, class: "VARIABLE" });
+  }
+
+  return autoBudgets.sort((a, b) => b.limit - a.limit);
 }
 
 export function calculateEmergencyFund(currentInput: unknown, targetInput: unknown): EmergencyFundMetrics {

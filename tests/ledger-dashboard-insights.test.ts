@@ -32,13 +32,15 @@ test("budget status exposes stable warning and overage states", () => {
   assert.equal(over.progressPercent, 100);
 });
 
-test("savings metrics count direct savings plus principal repayment as wealth building", () => {
-  const summary = calculateLedgerSummary([
+test("savings metrics count explicit savings plus principal repayment as wealth building", () => {
+  const rows = [
     tx({ type: "INCOME", kind: "STANDARD", amount: 10000 }),
     tx({ type: "EXPENSE", kind: "STANDARD", amount: 6000 }),
-    tx({ type: "EXPENSE", kind: "LOAN_PRINCIPAL", amount: 1000 }),
-  ]);
-  const metrics = calculateSavingsMetrics(summary);
+    tx({ type: "EXPENSE", kind: "LOAN_PRINCIPAL", amount: 1000, categoryName: "החזר הלוואה" }),
+    tx({ type: "EXPENSE", kind: "STANDARD", amount: 4000, categoryName: "חיסכון" }),
+  ];
+  const summary = calculateLedgerSummary(rows);
+  const metrics = calculateSavingsMetrics(summary, rows);
   assert.equal(metrics.directSavings, 4000);
   assert.equal(metrics.directSavingsRate, 40);
   assert.equal(metrics.wealthBuilding, 5000);
