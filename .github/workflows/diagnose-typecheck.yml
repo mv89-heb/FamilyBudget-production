@@ -3,11 +3,10 @@ on:
   pull_request:
     branches: [main]
 permissions:
-  issues: write
-  statuses: write
-  contents: read
+  contents: write
 jobs:
   diagnose:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,17 +19,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run typecheck 2>&1 | tee /tmp/typecheck.txt
+          npm run typecheck 2>&1 | tee .github/typecheck-diagnostic.txt
           code=${PIPESTATUS[0]}
+          echo "exit=$code" >> .github/typecheck-diagnostic.txt
           echo "exit=$code" >> "$GITHUB_OUTPUT"
           exit 0
-      - uses: actions/github-script@v7
-        env:
-          TC_OUTPUT: ${{ steps.tc.outputs.exit }}
-        with:
-          script: |
-            const fs = require('fs');
-            const output = fs.readFileSync('/tmp/typecheck.txt','utf8').trim();
-            const body = `Temporary typecheck diagnostics (exit ${process.env.TC_OUTPUT}):\n\n\`\`\`text\n${output.slice(0, 6000)}\n\`\`\``;
-            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+      - name: Persist diagnostic output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/typecheck-diagnostic.txt
+          git commit -m "chore: persist typecheck diagnostic [skip ci]" || exit 0
+          git push
       - run: test "${{ steps.tc.outputs.exit }}" = "0"
