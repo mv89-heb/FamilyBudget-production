@@ -77,6 +77,17 @@ function deterministic(row: ClassificationInput, source: ImportSource): Transact
   return null;
 }
 
+function localFallback(row: ClassificationInput): TransactionClassification {
+  return {
+    index: -1,
+    categoryName: row.existingCategory?.trim() || "אחר",
+    type: row.type,
+    kind: "STANDARD",
+    confidence: row.existingCategory?.trim() ? 0.35 : 0.15,
+    reason: "Gemini לא זמין; נשמר הסיווג המקומי ללא שינוי"
+  };
+}
+
 function sanitize(rows: ClassificationInput[]) {
   return rows.map((row, index) => ({
     index,
@@ -186,10 +197,17 @@ export async function classifyTransactions(rows: ClassificationInput[], source: 
 
   for (let offset = 0; offset < unresolved.length; offset += BATCH_SIZE) {
     const batch = unresolved.slice(offset, offset + BATCH_SIZE);
-    const classified = await callGemini(batch, source);
-    for (const item of classified) {
-      const originalIndex = unresolvedIndexes[offset + item.index];
-      output[originalIndex] = { ...item, index: originalIndex };
+    try {
+      const classified = await callGemini(batch, source);
+      for (const item of classified) {
+        const originalIndex = unresolvedIndexes[offset + item.index];
+        output[originalIndex] = { ...item, index: originalIndex };
+      }
+    } catch {
+      for (let i = 0; i < batch.length; i++) {
+        const originalIndex = unresolvedIndexes[offset + i];
+        output[originalIndex] = { ...localFallback(batch[i]), index: originalIndex };
+      }
     }
   }
 
