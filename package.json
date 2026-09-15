@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "prisma migrate deploy && next start",
+    "start": "node scripts/start-with-migrations.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "check": "npm run typecheck && npm run test && npm run build",
@@ -19,7 +19,7 @@
     "@prisma/client": "^6.15.0",
     "@tailwindcss/postcss": "^4.1.12",
     "@types/node": "20.17.6",
-    "@types/react": "19.0.10",
+    "@types/react": "19.0.4",
     "@types/react-dom": "19.0.4",
     "bcrypt": "^6.0.0",
     "jose": "^6.1.0",
