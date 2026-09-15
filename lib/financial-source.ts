@@ -38,7 +38,7 @@ export type FinancialSourceOfTruth = {
     endDate: string | null;
     principalPaid: number;
     interestPaid: number;
-    source: "MANUAL";
+    source: "MANUAL" | "INFERRED";
   }[];
 };
 
@@ -52,6 +52,10 @@ function toLedgerTransaction(row: {
   note?: string | null;
 }): LedgerTransaction {
   return { type: row.type, kind: row.kind, amount: Number(row.amount), transactionDate: row.transactionDate, categoryId: row.categoryId ?? null, categoryName: row.category?.name, note: row.note ?? null };
+}
+
+function normalizeLoanName(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase("he");
 }
 
 export async function getFinancialSourceOfTruth(userId: string, requestedMonth?: string): Promise<FinancialSourceOfTruth> {
@@ -96,8 +100,56 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
 
   const principalPaid = roundMoney(summary.debtPrincipal);
   const interestPaid = roundMoney(summary.debtInterest);
-  const loanOutstanding = loans.reduce((sum, loan) => sum + (loan.outstandingAmount == null ? 0 : Number(loan.outstandingAmount)), 0);
-  const loanPayments = loans.reduce((sum, loan) => sum + (loan.monthlyPayment == null ? 0 : Number(loan.monthlyPayment)), 0);
+
+  const manualLoans = loans.map((loan) => ({
+    id: loan.id,
+    name: loan.name,
+    originalAmount: Number(loan.originalAmount),
+    outstandingAmount: loan.outstandingAmount == null ? null : Number(loan.outstandingAmount),
+    interestRate: loan.interestRate == null ? null : Number(loan.interestRate),
+    monthlyPayment: loan.monthlyPayment == null ? null : Number(loan.monthlyPayment),
+    startDate: loan.startDate?.toISOString().slice(0, 10) ?? null,
+    endDate: loan.endDate?.toISOString().slice(0, 10) ?? null,
+    principalPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_PRINCIPAL").reduce((sum, row) => sum + Number(row.amount), 0)),
+    interestPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_INTEREST").reduce((sum, row) => sum + Number(row.amount), 0)),
+    source: "MANUAL" as const,
+  }));
+
+  // Imported loan payments can be correctly classified as LOAN_PRINCIPAL before a
+  // Loan record exists. Surface those payments as inferred loans instead of making
+  // the debt screen appear empty. No database record is created automatically.
+  const manualLoanIds = new Set(loans.map((loan) => loan.id));
+  const inferredGroups = new Map<string, { name: string; rows: { amount: number; transactionDate: Date }[] }>();
+  for (const row of transactions) {
+    if (row.kind !== "LOAN_PRINCIPAL" || !row.note) continue;
+    const name = row.note.replace(/\s+/g, " ").trim();
+    if (!name) continue;
+    const key = normalizeLoanName(name);
+    const group = inferredGroups.get(key) ?? { name, rows: [] };
+    group.rows.push({ amount: Number(row.amount), transactionDate: row.transactionDate });
+    inferredGroups.set(key, group);
+  }
+  const inferredLoans = Array.from(inferredGroups.entries()).map(([key, group]) => {
+    const sorted = [...group.rows].sort((a, b) => b.transactionDate.getTime() - a.transactionDate.getTime());
+    const totalPaid = roundMoney(group.rows.reduce((sum, row) => sum + Math.abs(row.amount), 0));
+    return {
+      id: `inferred:${key}`,
+      name: group.name,
+      originalAmount: totalPaid,
+      outstandingAmount: null,
+      interestRate: null,
+      monthlyPayment: roundMoney(Math.abs(sorted[0]?.amount ?? 0)),
+      startDate: group.rows.reduce((earliest, row) => row.transactionDate < earliest ? row.transactionDate : earliest, group.rows[0].transactionDate).toISOString().slice(0, 10),
+      endDate: null,
+      principalPaid: totalPaid,
+      interestPaid: 0,
+      source: "INFERRED" as const,
+    };
+  });
+  const allLoans = [...manualLoans, ...inferredLoans.filter((loan) => !manualLoanIds.has(loan.id))];
+
+  const loanOutstanding = manualLoans.reduce((sum, loan) => sum + (loan.outstandingAmount == null ? 0 : loan.outstandingAmount), 0);
+  const loanPayments = allLoans.reduce((sum, loan) => sum + (loan.monthlyPayment == null ? 0 : loan.monthlyPayment), 0);
 
   const linkedLoanIds = new Set(loans.map((loan) => loan.id));
   const loanById = new Map(loans.map((loan) => [loan.id, loan]));
@@ -116,26 +168,14 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
     budgets: budgetComparisons,
     categories,
     insights: smart.insights,
-    debts: { count: loans.length + standaloneLiabilities.length, outstanding: roundMoney(liabilityTotal), monthlyPayments: roundMoney(loanPayments + standaloneLiabilityPayments), principalPaid, interestPaid },
+    debts: { count: allLoans.length + standaloneLiabilities.length, outstanding: roundMoney(liabilityTotal), monthlyPayments: roundMoney(loanPayments + standaloneLiabilityPayments), principalPaid, interestPaid },
     netWorth,
     assets: assets.map((row) => ({ id: row.id, name: row.name, type: row.type, currentValue: Number(row.currentValue) })),
     liabilities: liabilities.map((row) => {
       const linkedLoan = row.loanId ? loanById.get(row.loanId) : null;
       return { id: row.id, name: row.name, type: row.type, currentBalance: linkedLoan?.outstandingAmount == null ? Number(row.currentBalance) : Number(linkedLoan.outstandingAmount), loanId: row.loanId };
     }),
-    loans: loans.map((loan) => ({
-      id: loan.id,
-      name: loan.name,
-      originalAmount: Number(loan.originalAmount),
-      outstandingAmount: loan.outstandingAmount == null ? null : Number(loan.outstandingAmount),
-      interestRate: loan.interestRate == null ? null : Number(loan.interestRate),
-      monthlyPayment: loan.monthlyPayment == null ? null : Number(loan.monthlyPayment),
-      startDate: loan.startDate?.toISOString().slice(0, 10) ?? null,
-      endDate: loan.endDate?.toISOString().slice(0, 10) ?? null,
-      principalPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_PRINCIPAL").reduce((sum, row) => sum + Number(row.amount), 0)),
-      interestPaid: roundMoney(loan.transactions.filter((row) => row.kind === "LOAN_INTEREST").reduce((sum, row) => sum + Number(row.amount), 0)),
-      source: "MANUAL" as const,
-    })),
+    loans: allLoans,
   };
 }
 
