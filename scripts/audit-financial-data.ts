@@ -5,19 +5,32 @@ async function main() {
   const users = await prisma.user.findMany({ select: { id: true, email: true } });
 
   for (const user of users) {
-    const transactions = await prisma.transaction.findMany({
-      where: { userId: user.id },
-      orderBy: { transactionDate: "asc" },
-      select: {
-        id: true,
-        transactionDate: true,
-        type: true,
-        amount: true,
-        note: true,
-        fingerprint: true,
-        paymentMethod: { select: { name: true } },
-      },
-    });
+    const [transactions, paymentMethods] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { userId: user.id },
+        orderBy: { transactionDate: "asc" },
+        select: {
+          id: true,
+          transactionDate: true,
+          type: true,
+          amount: true,
+          note: true,
+          fingerprint: true,
+          paymentMethodId: true,
+        },
+      }),
+      prisma.paymentMethod.findMany({
+        where: { userId: user.id },
+        select: { id: true, nickname: true, institution: true },
+      }),
+    ]);
+
+    const paymentMethodNames = new Map(
+      paymentMethods.map((method) => [
+        method.id,
+        method.nickname?.trim() || method.institution?.trim() || null,
+      ]),
+    );
 
     const analysis = analyzeTransactionFingerprints(
       transactions.map((row) => ({
@@ -26,7 +39,7 @@ async function main() {
         type: row.type as "INCOME" | "EXPENSE",
         amount: Number(row.amount),
         note: row.note,
-        paymentMethodName: row.paymentMethod?.name ?? null,
+        paymentMethodName: paymentMethodNames.get(row.paymentMethodId) ?? null,
         fingerprint: row.fingerprint,
       })),
       "BANK",
