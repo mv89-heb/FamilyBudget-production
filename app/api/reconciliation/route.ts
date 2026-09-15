@@ -35,7 +35,7 @@ export async function POST(req: Request) {
       create: { userId: user.id, month, ledgerBalance, bankBalance: input.bankBalance, difference, status, notes: input.notes, reconciledAt: status === "RECONCILED" ? new Date() : null },
       update: { ledgerBalance, bankBalance: input.bankBalance, difference, status, notes: input.notes, reconciledAt: status === "RECONCILED" ? new Date() : null },
     });
-    return NextResponse.json({ reconciliation: row, summary: financial.ledger, transactionCount: financial.ledger ? undefined : 0 });
+    return NextResponse.json({ reconciliation: row, summary: financial.ledger, transactionCount: financial.transactionCount });
   } catch (error) {
     return NextResponse.json({ error: error instanceof z.ZodError ? "נתוני התאמה לא תקינים" : "לא ניתן לבצע התאמה" }, { status: 400 });
   }
