@@ -46,6 +46,10 @@ function deterministicCategory(note: string | null) {
   if (has("העברה/", "ב.הופועלים-ביט/", "משיכה לחשבון", "ביט/", "bank transfer", "transfer")) return { name: "העברות כספיות", reason: "זוהתה העברה כספית" };
   if (has("לאומי למשכנתאות", "משכנתא")) return { name: "דיור והתחייבויות", reason: "זוהה תשלום משכנתא" };
   if (has("בנק יהב-אשראי", "בנק יהב אשראי", "מימון ישיר", "הלוואה")) return { name: "חובות והלוואות", reason: "זוהה תשלום הלוואה" };
+  if (has("הפקדה לפקדון", "הפקדה לפיקדון", "הפקדה לפקדון/", "הפקדה לפיקדון/")) return { name: "חיסכון ופקדונות", reason: "זוהתה הפקדה לפיקדון" };
+  if (has("שיק", "check", "cheque")) return { name: "שיק", reason: "זוהה תשלום באמצעות שיק" };
+  if (has("קיזוז מטח", "קיזוז מט"ח", "המרת מטח", "המרת מט"ח", "foreign exchange")) return { name: "עמלות והמרת מטבע", reason: "זוהתה תנועת מט"ח" };
+  if (has("כלל השתלמות", "כלל השתלמות כלל")) return { name: "חיסכון ופקדונות", reason: "זוהתה הפקדה לקרן השתלמות" };
   if (has("החזר", "refund", "ביטול עסקה", "זיכוי עסקה")) return { name: "החזרים", reason: "זוהה החזר או ביטול עסקה" };
   return null;
 }
@@ -65,7 +69,7 @@ async function classifyBatch(transactions: ClassificationTransaction[], categori
   if (!apiKey) throw new GeminiClassificationError("MISSING_API_KEY", "שירות Gemini לא מוגדר בשרת", 503);
   if (!transactions.length) return [];
 
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+  const models = Array.from(new Set([process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "gemini-2.5-flash-lite"]));
   const allowedCategories = categories.map((category) => `${category.id}: ${category.name}`).join("\n");
   const payload = transactions.map((transaction) => ({ transactionId: transaction.id, amount: transaction.amount, date: transaction.transactionDate.slice(0, 10), description: transaction.note || "" }));
   const prompt = [
@@ -82,29 +86,39 @@ async function classifyBatch(transactions: ClassificationTransaction[], categori
     "החזר JSON בלבד בפורמט: {\"suggestions\":[{\"transactionId\":\"...\",\"categoryId\":\"...\",\"confidence\":0,\"reason\":\"...\",\"rulePattern\":null}]}",
   ].join("\n");
 
-  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: "פעל כמסווג שמרני. לעולם אל תמציא קטגוריה או transactionId." }] }, contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: "application/json" } }),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      if (response.status === 429) throw new GeminiClassificationError("RATE_LIMIT", "Gemini עמוס כרגע. נסה שוב בעוד כמה רגעים", 429);
-      if ([401, 403].includes(response.status)) throw new GeminiClassificationError("UPSTREAM", "מפתח Gemini אינו תקין או אינו מורשה", 502);
-      throw new GeminiClassificationError("UPSTREAM", "Gemini לא זמין כרגע. נסה שוב בעוד רגע", 502);
-    }
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
-    const parsed = responseSchema.parse(extractJson(text));
-    const allowed = new Set(categories.map((category) => category.id)); const transactionIds = new Set(transactions.map((transaction) => transaction.id));
-    return parsed.suggestions.filter((item) => allowed.has(item.categoryId) && transactionIds.has(item.transactionId)).map((item) => ({ ...item, confidence: Math.round(item.confidence), rulePattern: item.rulePattern?.trim() || null }));
-  } catch (error) {
-    if (error instanceof GeminiClassificationError) throw error;
-    if (error instanceof z.ZodError) throw new GeminiClassificationError("INVALID_RESPONSE", "Gemini החזיר תשובה שלא ניתן לאמת", 502);
-    if (error instanceof Error && error.name === "AbortError") throw new GeminiClassificationError("TIMEOUT", "פג הזמן לניתוח ב-Gemini. הסיווגים המקומיים נשמרו", 504);
-    throw new GeminiClassificationError("UPSTREAM", "לא ניתן להשלים את הניתוח מול Gemini", 502);
-  } finally { clearTimeout(timeout); }
+  let lastError: unknown;
+  for (const model of models) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: "פעל כמסווג שמרני. לעולם אל תמציא קטגוריה או transactionId." }] }, contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: "application/json" } }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        if (response.status === 429) { lastError = new GeminiClassificationError("RATE_LIMIT", "Gemini עמוס כרגע. נסה שוב בעוד כמה רגעים", 429); continue; }
+        if ([401, 403].includes(response.status)) throw new GeminiClassificationError("UPSTREAM", "מפתח Gemini אינו תקין או אינו מורשה", 502);
+        lastError = new GeminiClassificationError("UPSTREAM", "Gemini לא זמין כרגע. נסה שוב בעוד רגע", 502);
+        continue;
+      }
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
+      const parsed = responseSchema.parse(extractJson(text));
+      const allowed = new Set(categories.map((category) => category.id)); const transactionIds = new Set(transactions.map((transaction) => transaction.id));
+      return parsed.suggestions.filter((item) => allowed.has(item.categoryId) && transactionIds.has(item.transactionId)).map((item) => ({ ...item, confidence: Math.round(item.confidence), rulePattern: item.rulePattern?.trim() || null }));
+    } catch (error) {
+      if (error instanceof GeminiClassificationError) {
+        lastError = error;
+        if (error.code === "UPSTREAM" && error.message.includes("מפתח Gemini")) throw error;
+        continue;
+      }
+      if (error instanceof z.ZodError) { lastError = new GeminiClassificationError("INVALID_RESPONSE", "Gemini החזיר תשובה שלא ניתן לאמת", 502); continue; }
+      if (error instanceof Error && error.name === "AbortError") { lastError = new GeminiClassificationError("TIMEOUT", "פג הזמן לניתוח ב-Gemini", 504); continue; }
+      lastError = new GeminiClassificationError("UPSTREAM", "לא ניתן להשלים את הניתוח מול Gemini", 502);
+    } finally { clearTimeout(timeout); }
+  }
+  throw lastError instanceof GeminiClassificationError ? lastError : new GeminiClassificationError("UPSTREAM", "Gemini לא זמין כרגע", 502);
 }
 
 export async function classifyTransactionsWithGemini(transactions: ClassificationTransaction[], categories: ClassificationCategory[], options: { userId: string }) {
