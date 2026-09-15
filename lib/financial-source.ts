@@ -64,7 +64,7 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
   const historyStart = monthRange(monthBefore(month, 12)).start;
 
   const [transactions, budgets, plan, loans, assets, liabilities, emergencyFunds] = await Promise.all([
-    prisma.transaction.findMany({ where: { userId, transactionDate: { gte: historyStart, lt: range.end } }, select: { type: true, kind: true, amount: true, transactionDate: true, categoryId: true, note: true, category: { select: { name: true } } } }),
+    prisma.transaction.findMany({ where: { userId, transactionDate: { gte: historyStart, lt: range.end } }, select: { type: true, kind: true, amount: true, transactionDate: true, categoryId: true, loanId: true, note: true, category: { select: { name: true } } } }),
     prisma.budget.findMany({ where: { userId, month: range.start }, select: { categoryId: true, limit: true, class: true, category: { select: { name: true } } }, orderBy: { category: { name: "asc" } } }),
     prisma.financialPlan.findUnique({ where: { userId }, select: { emergencyFundAmount: true, emergencyTargetMonths: true } }),
     prisma.loan.findMany({ where: { userId }, select: { id: true, name: true, originalAmount: true, outstandingAmount: true, interestRate: true, monthlyPayment: true, startDate: true, endDate: true, transactions: { select: { kind: true, amount: true, transactionDate: true } } } }),
@@ -115,16 +115,14 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
     source: "MANUAL" as const,
   }));
 
-  // Imported loan payments can be correctly classified as LOAN_PRINCIPAL before a
-  // Loan record exists. Surface those payments as inferred loans instead of making
-  // the debt screen appear empty. No database record is created automatically.
-  const manualLoanIds = new Set(loans.map((loan) => loan.id));
+  const manualLoanNames = new Set(manualLoans.map((loan) => normalizeLoanName(loan.name)));
   const inferredGroups = new Map<string, { name: string; rows: { amount: number; transactionDate: Date }[] }>();
   for (const row of transactions) {
-    if (row.kind !== "LOAN_PRINCIPAL" || !row.note) continue;
+    if (row.kind !== "LOAN_PRINCIPAL" || row.loanId || !row.note) continue;
     const name = row.note.replace(/\s+/g, " ").trim();
     if (!name) continue;
     const key = normalizeLoanName(name);
+    if (manualLoanNames.has(key)) continue;
     const group = inferredGroups.get(key) ?? { name, rows: [] };
     group.rows.push({ amount: Number(row.amount), transactionDate: row.transactionDate });
     inferredGroups.set(key, group);
@@ -132,6 +130,7 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
   const inferredLoans = Array.from(inferredGroups.entries()).map(([key, group]) => {
     const sorted = [...group.rows].sort((a, b) => b.transactionDate.getTime() - a.transactionDate.getTime());
     const totalPaid = roundMoney(group.rows.reduce((sum, row) => sum + Math.abs(row.amount), 0));
+    const earliest = group.rows.reduce((value, row) => row.transactionDate < value ? row.transactionDate : value, group.rows[0].transactionDate);
     return {
       id: `inferred:${key}`,
       name: group.name,
@@ -139,14 +138,14 @@ export async function getFinancialSourceOfTruth(userId: string, requestedMonth?:
       outstandingAmount: null,
       interestRate: null,
       monthlyPayment: roundMoney(Math.abs(sorted[0]?.amount ?? 0)),
-      startDate: group.rows.reduce((earliest, row) => row.transactionDate < earliest ? row.transactionDate : earliest, group.rows[0].transactionDate).toISOString().slice(0, 10),
+      startDate: earliest.toISOString().slice(0, 10),
       endDate: null,
       principalPaid: totalPaid,
       interestPaid: 0,
       source: "INFERRED" as const,
     };
   });
-  const allLoans = [...manualLoans, ...inferredLoans.filter((loan) => !manualLoanIds.has(loan.id))];
+  const allLoans = [...manualLoans, ...inferredLoans];
 
   const loanOutstanding = manualLoans.reduce((sum, loan) => sum + (loan.outstandingAmount == null ? 0 : loan.outstandingAmount), 0);
   const loanPayments = allLoans.reduce((sum, loan) => sum + (loan.monthlyPayment == null ? 0 : loan.monthlyPayment), 0);
