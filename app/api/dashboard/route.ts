@@ -28,7 +28,7 @@ export async function GET(req: Request) {
         orderBy: { transactionDate: "desc" },
         take: 8,
       }),
-    ]);
+    );
 
     const hasTransactions = financial.transactionCount > 0;
     const hasBudgets = financial.budgets.length > 0;
@@ -58,6 +58,7 @@ export async function GET(req: Request) {
       insights: financial.insights,
       byCategory: financial.categories,
       debts: financial.debts,
+      loans: financial.loans,
       netWorth: financial.netWorth,
       recent: recentRows.map(recentTransactionPresentation),
     });
