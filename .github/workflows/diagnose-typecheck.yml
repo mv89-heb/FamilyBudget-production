@@ -29,14 +29,17 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('/tmp/typecheck.txt','utf8').replace(/\s+/g,' ').trim();
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.payload.pull_request.head.sha,
-              state: process.env.TC_OUTPUT === '0' ? 'success' : 'failure',
-              context: 'typecheck-diagnostic',
-              description: output.slice(0, 900) || 'No typecheck output',
-              target_url: context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId
-            });
+            const lines = fs.readFileSync('/tmp/typecheck.txt','utf8').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            const state = process.env.TC_OUTPUT === '0' ? 'success' : 'failure';
+            for (let i = 0; i < Math.min(8, lines.length); i++) {
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.payload.pull_request.head.sha,
+                state,
+                context: `typecheck-diagnostic-${i + 1}`,
+                description: lines[i].slice(0, 140),
+                target_url: context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId
+              });
+            }
       - run: test "${{ steps.tc.outputs.exit }}" = "0"
