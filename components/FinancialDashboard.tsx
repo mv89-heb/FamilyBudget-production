@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Bell, CheckCircle2, PiggyBank, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 
@@ -18,6 +18,7 @@ type Budget = {
   limit: number;
   spent: number;
   remaining: number;
+  overage: number;
   percent: number;
   progressPercent: number;
   overBudget: boolean;
@@ -31,7 +32,6 @@ type DashboardData = {
   income: number;
   expense: number;
   balance: number;
-  debtPrincipal: number;
   savings: {
     directSavings: number;
     directSavingsRate: number;
@@ -86,9 +86,6 @@ export default function FinancialDashboard() {
   if (error) return <div dir="rtl" role="alert" className="rounded-2xl border border-red-100 bg-red-50 p-5 text-sm font-semibold text-red-700">{error}</div>;
   if (!data) return <DashboardSkeleton />;
 
-  const goodBudgets = data.budgetComparisons.filter((row) => row.status === "GOOD").length;
-  const alerts = data.budgetComparisons.filter((row) => row.status !== "GOOD").length;
-
   return (
     <div dir="rtl" className="space-y-6 pb-8">
       <header className="page-header">
@@ -115,7 +112,7 @@ export default function FinancialDashboard() {
           <SectionTitle title="איפה הכסף יוצא?" subtitle="פילוח ההוצאה השוטפת לפי קטגוריה" link="/transactions" linkText="לתנועות" />
           {data.byCategory.length === 0 ? <EmptyState text="אין הוצאות שוטפות בתקופה הזו." /> : (
             <div className="grid gap-6 md:grid-cols-[230px_1fr] md:items-center">
-              <DonutChart rows={data.byCategory.slice(0, 7)} />
+              <DonutChart rows={data.byCategory.slice(0, 7)} total={data.expense} />
               <div className="space-y-3">
                 {data.byCategory.slice(0, 7).map((row, index) => <div key={`${row.categoryId}-${row.categoryName}`} className="flex items-center justify-between gap-4 rounded-xl px-2 py-1.5 hover:bg-slate-50">
                   <div className="flex min-w-0 items-center gap-2"><span className={`h-2.5 w-2.5 shrink-0 rounded-full chart-dot-${index % 6}`} /><span className="truncate text-sm font-semibold text-slate-700">{row.categoryName}</span></div>
@@ -143,15 +140,12 @@ export default function FinancialDashboard() {
       <section className="card-elevated overflow-hidden p-5 md:p-6">
         <SectionTitle title="תכנון מול ביצוע" subtitle="המסגרת שהוגדרה מול ההוצאה בפועל" link="/plan" linkText="לתוכנית החודש" />
         {data.budgetComparisons.length === 0 ? <EmptyState text="עדיין לא הוגדרו מסגרות לחודש הזה." action="/plan" /> : (
-          <div className="space-y-4">
-            {data.budgetComparisons.map((row) => <BudgetBar key={row.categoryId} row={row} />)}
-          </div>
+          <div className="space-y-4">{data.budgetComparisons.map((row) => <BudgetBar key={row.categoryId} row={row} />)}</div>
         )}
         <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-4 text-xs font-semibold text-slate-500">
-          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" /> תקין: {goodBudgets}</span>
-          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-amber-400" /> התראה: {data.budgetComparisons.filter((row) => row.status === "WARNING").length}</span>
-          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" /> חריגה: {data.budgetComparisons.filter((row) => row.status === "OVER").length}</span>
-          {alerts === 0 && <span className="mr-auto text-emerald-700">כל המסגרות בשליטה</span>}
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" /> תקין</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-amber-400" /> התראה</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" /> חריגה</span>
         </div>
       </section>
 
@@ -161,9 +155,7 @@ export default function FinancialDashboard() {
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600"><Bell size={19} /></div>
             <div><h2 className="text-lg font-extrabold text-slate-900">תובנות החודש</h2><p className="mt-1 text-xs text-slate-400">המלצות דטרמיניסטיות על בסיס נתוני ה-Ledger בלבד.</p></div>
           </div>
-          <div className="space-y-3">
-            {data.insights.length ? data.insights.map((insight, index) => <InsightCard key={`${insight.title}-${index}`} insight={insight} />) : <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">אין מספיק פעילות כדי לייצר תובנות משמעותיות עדיין.</div>}
-          </div>
+          <div className="space-y-3">{data.insights.length ? data.insights.map((insight, index) => <InsightCard key={`${insight.title}-${index}`} insight={insight} />) : <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">אין מספיק פעילות כדי לייצר תובנות משמעותיות עדיין.</div>}</div>
         </section>
 
         <section className="card-elevated p-5 md:p-6">
@@ -191,7 +183,7 @@ export default function FinancialDashboard() {
   );
 }
 
-function Metric({ title, value, hint, icon, tone }: { title: string; value: string; hint: string; icon: React.ReactNode; tone: "good" | "neutral" | "danger" | "primary" }) {
+function Metric({ title, value, hint, icon, tone }: { title: string; value: string; hint: string; icon: ReactNode; tone: "good" | "neutral" | "danger" | "primary" }) {
   return <div className="card-elevated p-5"><div className="flex items-center justify-between"><span className={`grid h-9 w-9 place-items-center rounded-xl metric-${tone}`}>{icon}</span><span className="text-xs font-bold text-slate-400">{title}</span></div><div className="mt-4 text-2xl font-black tracking-tight text-slate-900">{value}</div><div className="mt-1 text-xs text-slate-400">{hint}</div></div>;
 }
 
@@ -199,7 +191,7 @@ function SectionTitle({ title, subtitle, link, linkText }: { title: string; subt
   return <div className="mb-5 flex items-end justify-between gap-4"><div><h2 className="text-lg font-extrabold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-400">{subtitle}</p></div>{link && <Link href={link} className="shrink-0 text-sm font-bold text-indigo-600">{linkText}<ArrowLeft size={14} className="mr-1 inline" /></Link>}</div>;
 }
 
-function DonutChart({ rows }: { rows: Category[] }) {
+function DonutChart({ rows, total }: { rows: Category[]; total: number }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
   return <div className="relative mx-auto h-[210px] w-[210px]">
@@ -207,7 +199,7 @@ function DonutChart({ rows }: { rows: Category[] }) {
       <circle cx="60" cy="60" r={radius} fill="none" stroke="currentColor" strokeWidth="14" className="text-slate-100" />
       {rows.map((row, index) => <circle key={`${row.categoryId}-${row.categoryName}`} cx="60" cy="60" r={radius} fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="butt" strokeDasharray={`${(row.sharePercent / 100) * circumference} ${circumference}`} strokeDashoffset={`${-(row.startPercent / 100) * circumference}`} className={`chart-stroke-${index % 6}`} />)}
     </svg>
-    <div className="absolute inset-0 grid place-items-center text-center"><div><div className="text-xs font-semibold text-slate-400">הוצאות</div><div className="mt-0.5 text-xl font-black text-slate-900">{number(rows.reduce((sum, row) => sum + row.amount, 0))} ₪</div></div></div>
+    <div className="absolute inset-0 grid place-items-center text-center"><div><div className="text-xs font-semibold text-slate-400">הוצאות</div><div className="mt-0.5 text-xl font-black text-slate-900">{number(total)} ₪</div></div></div>
   </div>;
 }
 
@@ -217,7 +209,7 @@ function ProgressRing({ percent }: { percent: number }) {
 
 function BudgetBar({ row }: { row: Budget }) {
   const statusClass = row.status === "OVER" ? "budget-over" : row.status === "WARNING" ? "budget-warning" : "budget-good";
-  return <div className="grid gap-2 md:grid-cols-[180px_1fr_145px] md:items-center"><div className="truncate text-sm font-bold text-slate-700">{row.categoryName}</div><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full transition-all ${statusClass}`} style={{ width: `${row.progressPercent}%` }} /></div><div className="text-left text-xs"><b className="text-slate-800">{money(row.spent)}</b><span className="text-slate-400"> / {money(row.limit)}</span><span className={`mr-2 font-bold ${row.status === "OVER" ? "text-red-600" : row.status === "WARNING" ? "text-amber-600" : "text-emerald-600"}`}>{row.status === "OVER" ? `חריגה ${money(Math.abs(row.remaining))}` : `${number(row.percent)}%`}</span></div></div>;
+  return <div className="grid gap-2 md:grid-cols-[180px_1fr_145px] md:items-center"><div className="truncate text-sm font-bold text-slate-700">{row.categoryName}</div><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full transition-all ${statusClass}`} style={{ width: `${row.progressPercent}%` }} /></div><div className="text-left text-xs"><b className="text-slate-800">{money(row.spent)}</b><span className="text-slate-400"> / {money(row.limit)}</span><span className={`mr-2 font-bold ${row.status === "OVER" ? "text-red-600" : row.status === "WARNING" ? "text-amber-600" : "text-emerald-600"}`}>{row.status === "OVER" ? `חריגה ${money(row.overage)}` : `${number(row.percent)}%`}</span></div></div>;
 }
 
 function InsightCard({ insight }: { insight: Insight }) {
