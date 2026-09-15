@@ -14,7 +14,7 @@ function createPrisma() {
       transaction: {
         async createMany({ args, query }: any) {
           if (!Array.isArray(args.data) || args.data.length === 0) return query(args);
-          const userIds = [...new Set(args.data.map((row: any) => row.userId).filter(Boolean))];
+          const userIds: string[] = [...new Set(args.data.map((row: any) => row.userId).filter((value: unknown): value is string => typeof value === "string" && value.length > 0))];
           if (userIds.length !== 1) return query(args);
           const userId = userIds[0];
           const [rules, categories] = await Promise.all([
@@ -32,13 +32,13 @@ function createPrisma() {
           const matchedRuleIds = data.map((row: any, index: number) => {
             if (row.categoryId === args.data[index].categoryId) return null;
             return resolveClassificationRule(rules, [args.data[index].note, categoryMap.get(args.data[index].categoryId) ?? ""])?.id ?? null;
-          }).filter(Boolean) as string[];
+          }).filter((value: string | null): value is string => Boolean(value));
           if (matchedRuleIds.length) await base.classificationRule.updateMany({ where: { id: { in: [...new Set(matchedRuleIds)] } }, data: { matchCount: { increment: 1 } } });
           return query({ ...args, data });
         },
         async create({ args, query }: any) {
-          if (!args.data?.userId) return query(args);
-          const userId = args.data.userId;
+          if (!args.data?.userId || typeof args.data.userId !== "string") return query(args);
+          const userId = args.data.userId as string;
           const [rules, categories] = await Promise.all([
             base.classificationRule.findMany({ where: { userId, active: true }, orderBy: [{ priority: "asc" }, { createdAt: "asc" }] }),
             base.category.findMany({ where: { userId }, select: { id: true, name: true } }),
