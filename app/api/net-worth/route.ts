@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { getFinancialSourceOfTruth } from "@/lib/financial-source";
 import { calculateNetWorth } from "@/lib/financial-control";
 
 const assetSchema = z.object({ name: z.string().trim().min(1).max(120), type: z.enum(["BANK_ACCOUNT","CASH","SAVINGS","DEPOSIT","INVESTMENT","PENSION","TRAINING_FUND","VEHICLE","PROPERTY","OTHER"]), currentValue: z.number().finite().nonnegative() });
@@ -10,13 +11,11 @@ const liabilitySchema = z.object({ name: z.string().trim().min(1).max(120), type
 export async function GET() {
   try {
     const user = await requireUser();
-    const [assets, liabilities, snapshots] = await Promise.all([
-      prisma.asset.findMany({ where: { userId: user.id, active: true }, orderBy: { name: "asc" } }),
-      prisma.liability.findMany({ where: { userId: user.id, active: true }, orderBy: { name: "asc" } }),
+    const [financial, snapshots] = await Promise.all([
+      getFinancialSourceOfTruth(user.id),
       prisma.netWorthSnapshot.findMany({ where: { userId: user.id }, orderBy: { snapshotDate: "desc" }, take: 12 }),
     ]);
-    const summary = calculateNetWorth(assets.map((row) => Number(row.currentValue)), liabilities.map((row) => Number(row.currentBalance)));
-    return NextResponse.json({ assets, liabilities, snapshots, summary });
+    return NextResponse.json({ assets: financial.assets, liabilities: financial.liabilities, snapshots, summary: financial.netWorth, debts: financial.debts });
   } catch { return NextResponse.json({ error: "לא מורשה" }, { status: 401 }); }
 }
 
@@ -30,16 +29,16 @@ export async function POST(req: Request) {
     }
     if (body?.kind === "liability") {
       const input = liabilitySchema.parse(body);
+      if (input.loanId) {
+        const loan = await prisma.loan.findFirst({ where: { id: input.loanId, userId: user.id }, select: { id: true } });
+        if (!loan) return NextResponse.json({ error: "הלוואה לא תקינה" }, { status: 400 });
+      }
       return NextResponse.json(await prisma.liability.create({ data: { ...input, userId: user.id } }), { status: 201 });
     }
     if (body?.kind === "snapshot") {
-      const rows = await Promise.all([
-        prisma.asset.findMany({ where: { userId: user.id, active: true }, select: { currentValue: true } }),
-        prisma.liability.findMany({ where: { userId: user.id, active: true }, select: { currentBalance: true } }),
-      ]);
-      const summary = calculateNetWorth(rows[0].map((r) => Number(r.currentValue)), rows[1].map((r) => Number(r.currentBalance)));
+      const financial = await getFinancialSourceOfTruth(user.id);
       const date = body.snapshotDate ? new Date(body.snapshotDate) : new Date();
-      const snapshot = await prisma.netWorthSnapshot.upsert({ where: { userId_snapshotDate: { userId: user.id, snapshotDate: date } }, create: { userId: user.id, snapshotDate: date, ...summary }, update: summary });
+      const snapshot = await prisma.netWorthSnapshot.upsert({ where: { userId_snapshotDate: { userId: user.id, snapshotDate: date } }, create: { userId: user.id, snapshotDate: date, ...financial.netWorth }, update: financial.netWorth });
       return NextResponse.json(snapshot, { status: 201 });
     }
     return NextResponse.json({ error: "בקשה לא תקינה" }, { status: 400 });

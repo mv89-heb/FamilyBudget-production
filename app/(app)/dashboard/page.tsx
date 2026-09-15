@@ -1,2 +1,6 @@
 import Dashboard from "@/components/Dashboard";
-export default function DashboardPage() { return <Dashboard />; }
+import FinancialControlStrip from "@/components/FinancialControlStrip";
+
+export default function DashboardPage() {
+  return <><FinancialControlStrip /><Dashboard /></>;
+}
