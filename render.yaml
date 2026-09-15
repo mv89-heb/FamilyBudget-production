@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --no-audit --no-fund && npm run build
-    startCommand: yarn start
+    startCommand: npm start
     healthCheckPath: /login
     envVars:
       - key: DATABASE_URL
