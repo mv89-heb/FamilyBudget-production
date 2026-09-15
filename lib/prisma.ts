@@ -14,7 +14,7 @@ function createPrisma() {
       transaction: {
         async createMany({ args, query }: any) {
           if (!Array.isArray(args.data) || args.data.length === 0) return query(args);
-          const userIds: string[] = [...new Set(args.data.map((row: any) => row.userId).filter((value: unknown): value is string => typeof value === "string" && value.length > 0))];
+          const userIds: string[] = Array.from(new Set<string>(args.data.map((row: any) => row.userId).filter((value: unknown): value is string => typeof value === "string" && value.length > 0)));
           if (userIds.length !== 1) return query(args);
           const userId = userIds[0];
           const [rules, categories] = await Promise.all([
@@ -29,11 +29,11 @@ function createPrisma() {
             if (!rule || rule.categoryId === row.categoryId || !categoryIds.has(rule.categoryId)) return row;
             return { ...row, categoryId: rule.categoryId };
           });
-          const matchedRuleIds = data.map((row: any, index: number) => {
+          const matchedRuleIds: string[] = data.map((row: any, index: number) => {
             if (row.categoryId === args.data[index].categoryId) return null;
             return resolveClassificationRule(rules, [args.data[index].note, categoryMap.get(args.data[index].categoryId) ?? ""])?.id ?? null;
           }).filter((value: string | null): value is string => Boolean(value));
-          if (matchedRuleIds.length) await base.classificationRule.updateMany({ where: { id: { in: [...new Set(matchedRuleIds)] } }, data: { matchCount: { increment: 1 } } });
+          if (matchedRuleIds.length) await base.classificationRule.updateMany({ where: { id: { in: Array.from(new Set<string>(matchedRuleIds)) } }, data: { matchCount: { increment: 1 } } });
           return query({ ...args, data });
         },
         async create({ args, query }: any) {
