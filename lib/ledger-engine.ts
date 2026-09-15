@@ -250,7 +250,8 @@ export function calculateAutoBudgets(
       const limit = roundMoney(averageLast3Months * (1 + safetyBufferPercent / 100));
       return { categoryId, categoryName: category.categoryName, averageLast3Months, limit, class: "VARIABLE" as const };
     })
-    .filter((row): row is AutoBudget => row !== null && row.limit > 0)
+    .filter((row): row is AutoBudget => row !== null)
+    .filter((row) => row.limit > 0)
     .sort((a, b) => b.limit - a.limit);
 }
 
