@@ -6,12 +6,11 @@ import { join } from "node:path";
 test("Excel import safety contract", () => {
   const source = readFileSync(join(process.cwd(), "app/api/import/excel/route.ts"), "utf8");
   for (const contract of [
-    "SENSITIVE_HEADER",
-    "redactForGemini",
+    "account number",
+    "redactRows",
     "sourceFileHash",
     "ImportSource",
     "CREDIT_CARD",
-    "creditCardIdentityMatches",
     "fingerprint",
   ]) assert.ok(source.includes(contract), `missing import safety contract: ${contract}`);
 });

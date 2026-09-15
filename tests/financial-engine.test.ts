@@ -47,7 +47,7 @@ test("legacy STANDARD debt can count toward debt burden without becoming princip
     { type: "EXPENSE", kind: "STANDARD", amount: 1101.19, note: "-בנק יהב-אשראי" },
     { type: "EXPENSE", kind: "LOAN_PRINCIPAL", amount: 1473.62 },
   ];
-  const isLegacyDebt = (transaction: (typeof transactions)[number]) => transaction.kind === "STANDARD" && transaction.note?.includes("יהב-אשראי");
+  const isLegacyDebt = (transaction: Parameters<typeof calculateDebtPayments>[0][number]) => transaction.kind === "STANDARD" && Boolean(transaction.note?.includes("יהב-אשראי"));
 
   assert.equal(calculateDebtPayments(transactions, isLegacyDebt), 3964.74);
   assert.equal(transactions.filter(transaction => transaction.kind === "LOAN_PRINCIPAL").reduce((total, transaction) => total + transaction.amount, 0), 1473.62);

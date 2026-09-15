@@ -3,8 +3,8 @@ services:
     name: familybudget
     runtime: node
     plan: free
-    buildCommand: npm install --no-audit --no-fund && npm run build
-    startCommand: yarn start
+    buildCommand: npm install --no-audit --no-fund && npm run db:deploy && npm run build
+    startCommand: npm start
     healthCheckPath: /login
     envVars:
       - key: DATABASE_URL
