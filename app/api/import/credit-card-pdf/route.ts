@@ -152,5 +152,14 @@ export async function POST(req: Request) {
       await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, errorMessage: warnings.length ? warnings.join("|") : null, completedAt: new Date() } });
       return NextResponse.json({ success: true, partial: warnings.length > 0, warnings, rowsDetected: rows.length, rowsAnalyzed: allRows.length, rowsImported, rowsUpdated, rowsSkipped, monthsDetected: [...presentMonths].sort(), missingMonths: missingAfterRecovery });
     } catch (error) { await prisma.importJob.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: error instanceof Error ? error.message : "IMPORT_FAILED" } }); throw error; }
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "ייבוא נכשל" }, { status: 500 }); }
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "IMPORT_FAILED";
+    if (code === "PDF_TEXT_EMPTY") {
+      return NextResponse.json(
+        { error: "ה-PDF סרוק או שלא ניתן לחלץ ממנו טקסט. יש לבצע OCR מקומי בדפדפן." },
+        { status: 422 },
+      );
+    }
+    return NextResponse.json({ error: code === "IMPORT_FAILED" ? "ייבוא נכשל" : code }, { status: 500 });
+  }
 }
