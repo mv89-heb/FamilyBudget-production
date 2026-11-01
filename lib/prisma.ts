@@ -4,6 +4,17 @@ import { withDatabaseReadRetry } from "@/lib/database-retry";
 
 const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<typeof createPrisma> };
 
+const RETRYABLE_READ_OPERATIONS = new Set([
+  "findUnique",
+  "findUniqueOrThrow",
+  "findFirst",
+  "findFirstOrThrow",
+  "findMany",
+  "count",
+  "aggregate",
+  "groupBy",
+]);
+
 function createPrisma() {
   const base = new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
@@ -14,20 +25,13 @@ function createPrisma() {
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }: any) {
-          const retryableReadOperations = new Set([
-            "findUnique",
-            "findUniqueOrThrow",
-            "findFirst",
-            "findFirstOrThrow",
-            "findMany",
-            "count",
-            "aggregate",
-            "groupBy",
-          ]);
+          if (!RETRYABLE_READ_OPERATIONS.has(operation)) return query(args);
 
-          if (!retryableReadOperations.has(operation)) return query(args);
-
-          return withDatabaseReadRetry(`${model ?? "unknown"}.${operation}`, () => query(args));
+          return withDatabaseReadRetry(
+            `${model ?? "unknown"}.${operation}`,
+            () => query(args),
+            { onRetry: (message) => console.warn(`[database] ${message}`) },
+          );
         },
       },
       transaction: {
