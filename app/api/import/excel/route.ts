@@ -29,6 +29,12 @@ const geminiMapSchema = z.object({
   description: z.number().int().nonnegative().nullable(), debit: z.number().int().nonnegative().nullable(), credit: z.number().int().nonnegative().nullable()
 });
 
+function redactRows(rows: unknown[][]) {
+  const headers = rows[0] ?? [];
+  const sensitive = /(card|credit card|cvv|cvc|security code|password|passwd|token|secret|api key|access key|account number|bank account|מספר כרטיס|כרטיס אשראי|קוד אבטחה|סיסמה|סיסמא|טוקן|מפתח|חשבון בנק)/i;
+  const blocked = new Set(headers.map((h, i) => sensitive.test(String(h ?? "").trim()) ? i : -1).filter(i => i >= 0));
+  return rows.map((row, r) => r === 0 ? row : row.map((value, i) => blocked.has(i) ? "[REDACTED]" : value));
+}
 async function geminiMapHeaders(rawRows: unknown[][]): Promise<HeaderMap> {
   const key = process.env.GEMINI_API_KEY?.trim(); if (!key) throw new Error("GEMINI_NOT_CONFIGURED");
   const headers = rawRows[0] ?? []; const sample = [headers, ...rawRows.slice(1, SAMPLE_ROWS + 1)];
