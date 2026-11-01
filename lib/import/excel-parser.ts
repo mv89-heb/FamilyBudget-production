@@ -82,6 +82,14 @@ function inferType(value: unknown, amount: number) {
   if (/(expense|debit|charge|payment|הוצאה|חיוב|תשלום)/i.test(text)) return "EXPENSE" as const;
   return amount < 0 ? "INCOME" as const : "EXPENSE" as const;
 }
+export function sanitizePaymentMethod(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  return text.replace(/(?<!\d)\d(?:[\s-]*\d){11,18}(?![\s-]*\d)/g, match => {
+    const digits = match.replace(/\D/g, "");
+    return digits.length >= 12 && digits.length <= 19 ? "•••• " + digits.slice(-4) : match;
+  });
+}
 export function localNormalize(rawRows: unknown[][], map = detectHeaders(rawRows[0] ?? []), source: ImportSource = "BANK"): GeminiRow[] | null {
   if (rawRows.length < 2) return [];
   const hasDebitCredit = source === "BANK" && (map.debit !== undefined || map.credit !== undefined);
@@ -104,7 +112,7 @@ export function localNormalize(rawRows: unknown[][], map = detectHeaders(rawRows
     const category = map.category === undefined ? "" : String(raw[map.category] ?? "").trim();
     const description = map.description === undefined ? "" : String(raw[map.description] ?? "").trim();
     const note = map.note === undefined ? description : String(raw[map.note] ?? "").trim();
-    const payment = map.paymentMethod === undefined ? "" : String(raw[map.paymentMethod] ?? "").trim();
+    const payment = map.paymentMethod === undefined ? "" : sanitizePaymentMethod(raw[map.paymentMethod]);
     rows.push({ date, amount: Math.abs(amount), type, categoryName: category || "אחר", paymentMethodName: payment || null, note: note || null });
   }
   return rows;

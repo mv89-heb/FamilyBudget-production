@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectHeaders, excelDate, localNormalize, numericAmount } from "../lib/import/excel-parser";
+import { detectHeaders, excelDate, localNormalize, numericAmount, sanitizePaymentMethod } from "../lib/import/excel-parser";
 
 test("detects common Hebrew credit-card statement headers", () => {
   const headers = ["תאריך העסקה", "שם בית העסק", "סכום העסקה", "תאריך חיוב", "כרטיס"];
@@ -51,4 +51,19 @@ test("bank imports still require a type column unless debit and credit columns e
 test("prefers the purchase date over an earlier billing-date column", () => {
   const headers = ["תאריך חיוב", "תאריך העסקה", "שם בית העסק", "סכום העסקה"];
   assert.equal(detectHeaders(headers).date, 1);
+});
+
+test("masks full card numbers before saving a payment method", () => {
+  assert.equal(sanitizePaymentMethod("Visa 1234 5678 9012 3456"), "Visa •••• 3456");
+  assert.equal(sanitizePaymentMethod("1234-5678-9012-3456"), "•••• 3456");
+  assert.equal(sanitizePaymentMethod("Visa 6752"), "Visa 6752");
+});
+
+test("credit-card normalization never retains a full card number from the card column", () => {
+  const rows = [
+    ["תאריך העסקה", "שם בית העסק", "סכום העסקה", "כרטיס"],
+    ["01/09/26", "סופר לדוגמה", "123,45", "Visa 1234 5678 9012 3456"],
+  ];
+  const normalized = localNormalize(rows, detectHeaders(rows[0]), "CREDIT_CARD");
+  assert.equal(normalized?.[0].paymentMethodName, "Visa •••• 3456");
 });
