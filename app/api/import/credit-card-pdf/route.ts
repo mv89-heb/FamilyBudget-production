@@ -64,12 +64,18 @@ async function requestGemini(text: string, instruction?: string) {
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload), signal: controller.signal, cache: "no-store" });
-      if (!response.ok) { if (response.status === 401 || response.status === 403) throw new Error("GEMINI_AUTH_FAILED"); if (response.status === 429) throw new Error("GEMINI_RATE_LIMITED"); throw new Error("GEMINI_REQUEST_FAILED"); }
+      if (!response.ok) {
+        console.error("Gemini credit-card PDF request failed", { model, status: response.status });
+        if (response.status === 401 || response.status === 403) throw new Error("GEMINI_AUTH_FAILED");
+        if (response.status === 429) throw new Error("GEMINI_RATE_LIMITED");
+        if ([500, 502, 503, 504].includes(response.status)) throw new Error("GEMINI_UPSTREAM_UNAVAILABLE");
+        throw new Error("GEMINI_REQUEST_FAILED");
+      }
       const data = await response.json(); const value = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (typeof value !== "string") throw new Error("GEMINI_EMPTY_RESPONSE");
       const cleaned = value.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
       return responseSchema.parse(JSON.parse(cleaned)).rows;
-    } catch (error) { lastError = error instanceof Error ? error : new Error("GEMINI_REQUEST_FAILED"); if (["GEMINI_AUTH_FAILED", "GEMINI_RATE_LIMITED"].includes(lastError.message)) break; if (lastError.name === "AbortError") lastError = new Error("GEMINI_TIMEOUT"); } finally { clearTimeout(timeout); }
+    } catch (error) { lastError = error instanceof Error ? error : new Error("GEMINI_REQUEST_FAILED"); if (["GEMINI_AUTH_FAILED"].includes(lastError.message)) break; if (lastError.name === "AbortError") lastError = new Error("GEMINI_TIMEOUT"); } finally { clearTimeout(timeout); }
   }
   throw lastError ?? new Error("GEMINI_REQUEST_FAILED");
 }
