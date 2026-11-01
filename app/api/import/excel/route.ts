@@ -106,7 +106,7 @@ async function geminiMapHeaders(rawRows: unknown[][]): Promise<HeaderMap> {
       } catch (error) { lastError = error; if (error instanceof Error && ["GEMINI_AUTH_FAILED", "GEMINI_RATE_LIMITED"].includes(error.message)) break; if (attempt < GEMINI_RETRIES) await new Promise(resolve => setTimeout(resolve, 500)); }
       finally { clearTimeout(timer); }
     }
-    if (lastError instanceof Error && ["GEMINI_AUTH_FAILED", "GEMINI_RATE_LIMITED"].includes(lastError.message)) break;
+    if (lastError instanceof Error && ["GEMINI_AUTH_FAILED"].includes(lastError.message)) break;
   }
   if (lastError instanceof Error && lastError.name === "AbortError") throw new Error("GEMINI_TIMEOUT");
   if (lastError instanceof Error && lastError.message === "GEMINI_RATE_LIMITED") throw lastError;
