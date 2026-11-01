@@ -1,7 +1,19 @@
 import { PrismaClient } from "@prisma/client";
 import { resolveClassificationRule } from "@/lib/rules-engine";
+import { withDatabaseReadRetry } from "@/lib/database-retry";
 
 const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<typeof createPrisma> };
+
+const RETRYABLE_READ_OPERATIONS = new Set([
+  "findUnique",
+  "findUniqueOrThrow",
+  "findFirst",
+  "findFirstOrThrow",
+  "findMany",
+  "count",
+  "aggregate",
+  "groupBy",
+]);
 
 function createPrisma() {
   const base = new PrismaClient({
@@ -11,6 +23,17 @@ function createPrisma() {
 
   return base.$extends({
     query: {
+      $allModels: {
+        async $allOperations({ model, operation, args, query }: any) {
+          if (!RETRYABLE_READ_OPERATIONS.has(operation)) return query(args);
+
+          return withDatabaseReadRetry(
+            `${model ?? "unknown"}.${operation}`,
+            () => query(args),
+            { onRetry: (message) => console.warn(`[database] ${message}`) },
+          );
+        },
+      },
       transaction: {
         async createMany({ args, query }: any) {
           if (!Array.isArray(args.data) || args.data.length === 0) return query(args);
