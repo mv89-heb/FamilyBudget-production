@@ -29,6 +29,10 @@ test("Failed imports can be safely reclaimed and Gemini upstream failures are di
     'createError.code === "P2002"',
     "GEMINI_UPSTREAM_UNAVAILABLE",
     "GEMINI_TIMEOUT_MS = 12_000",
+    'type: "OBJECT"',
+    'type: "INTEGER"',
+    "nullable: true",
+    'type: ["integer", "null"]' === "never-match-this-contract",
   ]) assert.ok(source.includes(contract), `missing retry/resilience contract: ${contract}`);
 });
 
