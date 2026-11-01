@@ -61,10 +61,12 @@ function redactRows(rows: unknown[][]) {
   const blocked = new Set(headers.map((h, i) => sensitive.test(normalizeHeader(h)) ? i : -1).filter(i => i >= 0));
   return rows.map((row, r) => r === 0 ? row : row.map((v, i) => blocked.has(i) ? "[REDACTED]" : v));
 }
-function localNormalize(rawRows: unknown[][], map = detectHeaders(rawRows[0] ?? [])): GeminiRow[] | null {
+function localNormalize(rawRows: unknown[][], map = detectHeaders(rawRows[0] ?? []), source: ImportSource = "BANK"): GeminiRow[] | null {
   if (rawRows.length < 2) return [];
-  const hasDebitCredit = map.debit !== undefined || map.credit !== undefined;
-  if (map.date === undefined || (map.amount === undefined && !hasDebitCredit) || (map.type === undefined && !hasDebitCredit)) return null;
+  // Credit-card statements commonly omit a transaction-type column: positive amounts are charges,
+  // while refunds are identified later from the merchant/description text.
+  const hasDebitCredit = source === "BANK" && (map.debit !== undefined || map.credit !== undefined);
+  if (map.date === undefined || (map.amount === undefined && !hasDebitCredit) || (source === "BANK" && map.type === undefined && !hasDebitCredit)) return null;
   const rows: GeminiRow[] = [];
   for (const raw of rawRows.slice(1, MAX_ROWS + 1)) {
     const date = excelDate(raw[map.date]); if (!date) continue;
@@ -72,7 +74,7 @@ function localNormalize(rawRows: unknown[][], map = detectHeaders(rawRows[0] ?? 
     if (hasDebitCredit) {
       const debit = map.debit === undefined ? null : numericAmount(raw[map.debit]); const credit = map.credit === undefined ? null : numericAmount(raw[map.credit]);
       if (debit !== null && debit !== 0) { amount = Math.abs(debit); type = "EXPENSE"; } else if (credit !== null && credit !== 0) { amount = Math.abs(credit); type = "INCOME"; } else continue;
-    } else { amount = numericAmount(raw[map.amount!]); if (amount === null || amount === 0) continue; type = inferType(raw[map.type!], amount); }
+    } else { amount = numericAmount(raw[map.amount!]); if (amount === null || amount === 0) continue; type = inferType(map.type === undefined ? "" : raw[map.type], amount); }
     const category = map.category === undefined ? "" : String(raw[map.category] ?? "").trim();
     const description = map.description === undefined ? "" : String(raw[map.description] ?? "").trim();
     const note = map.note === undefined ? description : String(raw[map.note] ?? "").trim();
@@ -192,11 +194,33 @@ export async function POST(request: Request) {
       }
     }
     const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: true });
-    const rawRows = workbook.SheetNames.flatMap(sheetName => XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: "", raw: true })).slice(0, MAX_ROWS + 1);
-    const detectedMap = detectHeaders(rawRows[0] ?? []);
-    let importedRows = localNormalize(rawRows, detectedMap);
+    // Evaluate each worksheet independently and locate its header row instead of assuming
+    // that the first row of the first worksheet contains the transaction table.
+    const candidates = workbook.SheetNames.flatMap(sheetName => {
+      const sheetRows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: "", raw: true }).slice(0, MAX_ROWS + 16);
+      return sheetRows.slice(0, 16).map((header, headerIndex) => {
+        const rows = sheetRows.slice(headerIndex);
+        const map = detectHeaders(header);
+        const score = [map.date, map.amount, map.type, map.debit, map.credit, map.description, map.note, map.paymentMethod].filter(index => index !== undefined).length;
+        return { rows, map, score, sheetName, headerIndex };
+      }).filter(candidate => candidate.score > 0);
+    }).sort((a, b) => b.score - a.score);
+    if (!candidates.length) throw new Error("NO_VALID_ROWS");
+    let importedRows: GeminiRow[] | null = null;
+    let selectedRows = candidates[0].rows;
+    for (const candidate of candidates) {
+      const parsed = localNormalize(candidate.rows, candidate.map, source);
+      if (parsed && parsed.length > (importedRows?.length ?? 0)) {
+        importedRows = parsed;
+        selectedRows = candidate.rows;
+      }
+    }
     let analysisMode: "local" | "gemini" = "local";
-    if (importedRows === null) { const geminiMap = await geminiMapHeaders(rawRows); importedRows = localNormalize(rawRows, geminiMap); analysisMode = "gemini"; }
+    if (!importedRows?.length) {
+      const geminiMap = await geminiMapHeaders(selectedRows);
+      importedRows = localNormalize(selectedRows, geminiMap, source);
+      analysisMode = "gemini";
+    }
     if (!importedRows?.length) throw new Error("NO_VALID_ROWS");
     const classifications = await classificationCenter(importedRows.map(row => ({
   date: row.date,
