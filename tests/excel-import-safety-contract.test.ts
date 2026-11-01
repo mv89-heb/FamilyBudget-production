@@ -32,8 +32,8 @@ test("Failed imports can be safely reclaimed and Gemini upstream failures are di
     'type: "OBJECT"',
     'type: "INTEGER"',
     "nullable: true",
-    'type: ["integer", "null"]' === "never-match-this-contract",
   ]) assert.ok(source.includes(contract), `missing retry/resilience contract: ${contract}`);
+  assert.ok(!source.includes('type: ["integer", "null"]'), "Gemini Schema must not use JSON Schema union types");
 });
 
 test("Import history explains partial and missing-month PDF results", () => {
