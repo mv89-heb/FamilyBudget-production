@@ -34,6 +34,10 @@ test("Failed imports can be safely reclaimed and Gemini upstream failures are di
     "nullable: true",
   ]) assert.ok(source.includes(contract), `missing retry/resilience contract: ${contract}`);
   assert.ok(!source.includes('type: ["integer", "null"]'), "Gemini Schema must not use JSON Schema union types");
+  assert.ok(source.includes('const hasDebitCredit = source === "BANK" &&'), "a single credit-card amount column must not be treated as a bank debit/credit pair");
+  assert.ok(source.includes('source === "BANK" && map.type === undefined'), "bank imports must still require a transaction type unless debit/credit columns exist");
+  assert.ok(source.includes('sheetRows.slice(0, 16).map'), "Excel import must search for headers below introductory rows");
+  assert.ok(source.includes('workbook.SheetNames.flatMap'), "Excel import must inspect worksheets independently");
 });
 
 test("Import history explains partial and missing-month PDF results", () => {
