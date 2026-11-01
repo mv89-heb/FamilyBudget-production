@@ -25,3 +25,13 @@ test("Credit-card PDF import privacy and dedupe contract", () => {
   assert.ok(!route.includes("requestGemini(buffer"), "raw PDF buffer must never be sent to Gemini");
   assert.ok(!route.includes("requestGemini(parsed.text"), "unsanitized PDF text must never be sent to Gemini");
 });
+
+test("PDF and OCR imports distinguish Gemini upstream outages and try the fallback model", () => {
+  const pdf = readFileSync(join(process.cwd(), "app/api/import/credit-card-pdf/route.ts"), "utf8");
+  const ocr = readFileSync(join(process.cwd(), "app/api/import/credit-card-pdf/text/route.ts"), "utf8");
+  for (const [name, source] of [["PDF", pdf], ["OCR", ocr]] as const) {
+    assert.ok(source.includes("GEMINI_UPSTREAM_UNAVAILABLE"), `${name} import must distinguish upstream outages`);
+    assert.ok(source.includes("Gemini") && source.includes("status: response.status"), `${name} import must log safe HTTP diagnostics`);
+    assert.ok(source.includes('["GEMINI_AUTH_FAILED"].includes(lastError.message)'), `${name} import should try the fallback model after rate limits`);
+  }
+});
