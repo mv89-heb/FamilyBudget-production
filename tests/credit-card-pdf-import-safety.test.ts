@@ -24,6 +24,9 @@ test("Credit-card PDF import privacy and dedupe contract", () => {
 
   assert.ok(!route.includes("requestGemini(buffer"), "raw PDF buffer must never be sent to Gemini");
   assert.ok(!route.includes("requestGemini(parsed.text"), "unsanitized PDF text must never be sent to Gemini");
+  assert.ok(route.includes('code === "PDF_TEXT_EMPTY"'), "scanned PDFs without a text layer must be identified explicitly");
+  assert.ok(route.includes("status: 422"), "scanned PDFs must return the status that activates browser OCR");
+  assert.ok(route.includes("ה-PDF סרוק או שלא ניתן לחלץ ממנו טקסט"), "the response must match the browser OCR fallback contract");
 });
 
 test("PDF and OCR imports distinguish Gemini upstream outages and try the fallback model", () => {
