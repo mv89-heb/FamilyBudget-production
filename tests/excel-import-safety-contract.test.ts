@@ -7,6 +7,7 @@ test("Excel import safety contract", () => {
   const source = readFileSync(join(process.cwd(), "app/api/import/excel/route.ts"), "utf8");
   for (const contract of [
     "account number",
+    "כרטיס|קוד אבטחה",
     "redactRows",
     "sourceFileHash",
     "ImportSource",
