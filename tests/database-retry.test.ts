@@ -64,7 +64,7 @@ test("stops after the bounded retry budget", async () => {
       },
       { delaysMs: [0, 0] },
     ),
-    /Database unavailable/,
+    (error: unknown) => Boolean(error && typeof error === "object" && "code" in error && error.code === "P1001" && "message" in error && error.message === "Database unavailable"),
   );
 
   assert.equal(attempts, 3);
