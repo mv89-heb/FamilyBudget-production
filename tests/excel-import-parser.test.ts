@@ -47,3 +47,8 @@ test("bank imports still require a type column unless debit and credit columns e
   assert.equal(localNormalize(rows, detectHeaders(rows[0]), "BANK"), null);
   assert.equal(localNormalize(rows, detectHeaders(rows[0]), "CREDIT_CARD")?.length, 1);
 });
+
+test("prefers the purchase date over an earlier billing-date column", () => {
+  const headers = ["תאריך חיוב", "תאריך העסקה", "שם בית העסק", "סכום העסקה"];
+  assert.equal(detectHeaders(headers).date, 1);
+});
