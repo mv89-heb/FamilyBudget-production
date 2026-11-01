@@ -31,3 +31,10 @@ test("Failed imports can be safely reclaimed and Gemini upstream failures are di
     "GEMINI_TIMEOUT_MS = 12_000",
   ]) assert.ok(source.includes(contract), `missing retry/resilience contract: ${contract}`);
 });
+
+test("Import history explains partial and missing-month PDF results", () => {
+  const source = readFileSync(join(process.cwd(), "app/import/history/page.tsx"), "utf8");
+  for (const contract of ["MISSING_MONTHS:", "GEMINI_PARTIAL:", "PROCESSING_TIMEOUT", "PDF_TEXT_EMPTY", "explainImportMessage"]) {
+    assert.ok(source.includes(contract), `missing import history explanation: ${contract}`);
+  }
+});
