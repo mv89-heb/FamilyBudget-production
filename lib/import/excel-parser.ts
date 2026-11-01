@@ -84,7 +84,7 @@ function inferType(value: unknown, amount: number) {
 }
 export function sanitizePaymentMethod(value: unknown) {
   const text = String(value ?? "").trim();
-  if (!text) return "";
+  if (!text || /^\[REDACTED\]$/i.test(text)) return "";
   return text.replace(/(?<!\d)\d(?:[\s-]*\d){11,18}(?![\s-]*\d)/g, match => {
     const digits = match.replace(/\D/g, "");
     return digits.length >= 12 && digits.length <= 19 ? "•••• " + digits.slice(-4) : match;

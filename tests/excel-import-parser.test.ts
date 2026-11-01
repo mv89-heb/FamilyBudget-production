@@ -59,6 +59,11 @@ test("masks full card numbers before saving a payment method", () => {
   assert.equal(sanitizePaymentMethod("Visa 6752"), "Visa 6752");
 });
 
+test("does not save redaction placeholders as payment-method nicknames", () => {
+  assert.equal(sanitizePaymentMethod("[REDACTED]"), "");
+  assert.equal(sanitizePaymentMethod(" [REDACTED] "), "");
+});
+
 test("credit-card normalization never retains a full card number from the card column", () => {
   const rows = [
     ["תאריך העסקה", "שם בית העסק", "סכום העסקה", "כרטיס"],
