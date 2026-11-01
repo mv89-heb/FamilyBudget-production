@@ -6,7 +6,7 @@ type RetryOptions = {
 const TRANSIENT_PRISMA_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
 const TRANSIENT_NETWORK_PATTERNS = [
   /connection (?:closed|reset|terminated)/i,
-  /postgresql connection:\\s*closed/i,
+  /postgresql connection:\s*closed/i,
   /server has closed the connection/i,
   /socket hang up/i,
   /ECONNRESET/i,
