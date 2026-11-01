@@ -5,7 +5,7 @@ export type HeaderMap = { date?: number; amount?: number; type?: number; categor
 export type GeminiRow = { date: string; amount: number; type: "INCOME" | "EXPENSE"; categoryName: string; paymentMethodName: string | null; note: string | null };
 
 export function normalizeHeader(value: unknown) {
-  return String(value ?? "").replace(/^\\uFEFF/, "").trim().toLocaleLowerCase("he").normalize("NFC").replace(/[\\s_\\-./]+/g, " ");
+  return String(value ?? "").replace(/^\uFEFF/, "").trim().toLocaleLowerCase("he").normalize("NFC").replace(/[\s_\-./]+/g, " ");
 }
 function findColumn(headers: unknown[], aliases: string[]) {
   const normalized = headers.map(normalizeHeader);
@@ -43,9 +43,9 @@ export function excelDate(value: unknown) {
     if (parsed?.y && parsed?.m && parsed?.d) return validDate(parsed.y, parsed.m, parsed.d);
   }
   const text = String(value ?? "").trim().replace(/^["']|["']$/g, "");
-  const iso = text.match(/^(\\d{4})[-/.](\\d{1,2})[-/.](\\d{1,2})(?:[ T].*)?$/);
+  const iso = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T].*)?$/);
   if (iso) return validDate(+iso[1], +iso[2], +iso[3]);
-  const local = text.match(/^(\\d{1,2})[./-](\\d{1,2})[./-](\\d{2,4})(?:[ T].*)?$/);
+  const local = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?:[ T].*)?$/);
   if (!local) return null;
   const day = +local[1], month = +local[2];
   let year = +local[3];
@@ -54,23 +54,23 @@ export function excelDate(value: unknown) {
 }
 export function numericAmount(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  let text = String(value ?? "").trim().replace(/[₪$€£\\s\\u00a0]/g, "").replace(/[−–]/g, "-");
+  let text = String(value ?? "").trim().replace(/[₪$€£\s\u00a0]/g, "").replace(/[−–]/g, "-");
   if (!text) return null;
-  const negativeByBrackets = /^\\(.*\\)$/.test(text);
+  const negativeByBrackets = /^\(.*\)$/.test(text);
   if (negativeByBrackets) text = text.slice(1, -1);
-  text = text.replace(/[^\\d,.-]/g, "");
-  if (!text || !/\\d/.test(text)) return null;
+  text = text.replace(/[^\d,.-]/g, "");
+  if (!text || !/\d/.test(text)) return null;
   const comma = text.lastIndexOf(","), dot = text.lastIndexOf(".");
   if (comma >= 0 && dot >= 0) {
     const decimal = comma > dot ? "," : ".";
-    const thousands = decimal === "," ? /\\./g : /,/g;
+    const thousands = decimal === "," ? /\./g : /,/g;
     text = text.replace(thousands, "").replace(decimal, ".");
   } else if (comma >= 0) {
     const decimals = text.length - comma - 1;
     text = decimals > 0 && decimals <= 2 ? text.replace(",", ".") : text.replace(/,/g, "");
   } else if (dot >= 0) {
     const decimals = text.length - dot - 1;
-    if (decimals > 2) text = text.replace(/\\./g, "");
+    if (decimals > 2) text = text.replace(/\./g, "");
   }
   const parsed = Number(text);
   if (!Number.isFinite(parsed)) return null;
