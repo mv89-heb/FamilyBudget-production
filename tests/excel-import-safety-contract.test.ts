@@ -22,6 +22,7 @@ test("Import UI requires an explicit source", () => {
 
 test("Failed imports can be safely reclaimed and Gemini upstream failures are distinguished", () => {
   const source = readFileSync(join(process.cwd(), "app/api/import/excel/route.ts"), "utf8");
+  const parser = readFileSync(join(process.cwd(), "lib/import/excel-parser.ts"), "utf8");
   for (const contract of [
     'prior?.status === "FAILED"',
     'where: { id: prior.id, status: "FAILED" }',
@@ -34,8 +35,8 @@ test("Failed imports can be safely reclaimed and Gemini upstream failures are di
     "nullable: true",
   ]) assert.ok(source.includes(contract), `missing retry/resilience contract: ${contract}`);
   assert.ok(!source.includes('type: ["integer", "null"]'), "Gemini Schema must not use JSON Schema union types");
-  assert.ok(source.includes('const hasDebitCredit = source === "BANK" &&'), "a single credit-card amount column must not be treated as a bank debit/credit pair");
-  assert.ok(source.includes('source === "BANK" && map.type === undefined'), "bank imports must still require a transaction type unless debit/credit columns exist");
+  assert.ok(parser.includes('const hasDebitCredit = source === "BANK" &&'), "a single credit-card amount column must not be treated as a bank debit/credit pair");
+  assert.ok(parser.includes('source === "BANK" && map.type === undefined'), "bank imports must still require a transaction type unless debit/credit columns exist");
   assert.ok(source.includes('sheetRows.slice(0, 16).map'), "Excel import must search for headers below introductory rows");
   assert.ok(source.includes('workbook.SheetNames.flatMap'), "Excel import must inspect worksheets independently");
 });
