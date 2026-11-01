@@ -5,6 +5,7 @@ import { isTransientDatabaseError, withDatabaseReadRetry } from "../lib/database
 test("recognizes Prisma connection failures as transient", () => {
   assert.equal(isTransientDatabaseError({ code: "P1017", message: "Server has closed the connection" }), true);
   assert.equal(isTransientDatabaseError(new Error("Connection reset by peer")), true);
+  assert.equal(isTransientDatabaseError(new Error("Error in PostgreSQL connection: Closed")), true);
   assert.equal(isTransientDatabaseError({ message: "outer", cause: { code: "P1001" } }), true);
 });
 
