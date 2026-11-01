@@ -31,7 +31,7 @@ const geminiMapSchema = z.object({
 
 function redactRows(rows: unknown[][]) {
   const headers = rows[0] ?? [];
-  const sensitive = /(card|credit card|cvv|cvc|security code|password|passwd|token|secret|api key|access key|account number|bank account|מספר כרטיס|כרטיס אשראי|קוד אבטחה|סיסמה|סיסמא|טוקן|מפתח|חשבון בנק)/i;
+  const sensitive = /(card|credit card|cvv|cvc|security code|password|passwd|token|secret|api key|access key|account number|bank account|מספר כרטיס|כרטיס אשראי|כרטיס|קוד אבטחה|סיסמה|סיסמא|טוקן|מפתח|חשבון בנק)/i;
   const blocked = new Set(headers.map((h, i) => sensitive.test(String(h ?? "").trim()) ? i : -1).filter(i => i >= 0));
   return rows.map((row, r) => r === 0 ? row : row.map((value, i) => blocked.has(i) ? "[REDACTED]" : value));
 }
