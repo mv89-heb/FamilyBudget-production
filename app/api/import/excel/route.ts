@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { classificationCenter } from "@/lib/import/classification-center";
+import { detectHeaders, localNormalize, type HeaderMap, type ImportSource, type GeminiRow } from "@/lib/import/excel-parser";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,9 +18,7 @@ const GEMINI_RETRIES = 0;
 const SAMPLE_ROWS = 24;
 const GEMINI_MODELS = Array.from(new Set([process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash", "gemini-2.5-flash-lite"]));
 
-type ImportSource = "BANK" | "CREDIT_CARD";
-type HeaderMap = { date?: number; amount?: number; type?: number; category?: number; paymentMethod?: number; note?: number; description?: number; debit?: number; credit?: number };
-type GeminiRow = { date: string; amount: number; type: "INCOME" | "EXPENSE"; categoryName: string; paymentMethodName: string | null; note: string | null };
+
 type ClassifiedKind = "STANDARD" | "TRANSFER" | "CASH_WITHDRAWAL" | "LOAN_PRINCIPAL" | "REFUND";
 type ClassifiedRow = GeminiRow & { kind: ClassifiedKind; sourceIndex: number };
 
@@ -30,58 +29,11 @@ const geminiMapSchema = z.object({
   description: z.number().int().nonnegative().nullable(), debit: z.number().int().nonnegative().nullable(), credit: z.number().int().nonnegative().nullable()
 });
 
-function normalizeHeader(value: unknown) { return String(value ?? "").trim().toLocaleLowerCase("he").replace(/[\s_\-./]+/g, " "); }
-function findColumn(headers: unknown[], aliases: string[]) { const normalized = headers.map(normalizeHeader); const index = normalized.findIndex(value => aliases.some(alias => value === alias || value.includes(alias))); return index >= 0 ? index : undefined; }
-function detectHeaders(headers: unknown[]): HeaderMap {
-  const aliases = {
-    date: ["date", "transaction date", "תאריך", "תאריך עסקה", "יום"],
-    amount: ["amount", "sum", "סכום", "סכום עסקה", "סכום חיוב", "סכום עסקה"],
-    type: ["type", "transaction type", "סוג", "סוג תנועה", "הכנסה הוצאה"],
-    category: ["category", "קטגוריה", "סיווג"],
-    paymentMethod: ["payment method", "payment", "אמצעי תשלום", "אמצעי", "כרטיס"],
-    note: ["note", "notes", "הערה", "הערות"],
-    description: ["description", "details", "merchant", "תיאור", "פרטים", "בית עסק", "שם בית עסק"],
-    debit: ["debit", "withdrawal", "debit amount", "חיוב", "משיכה"],
-    credit: ["credit", "deposit", "credit amount", "זיכוי", "הפקדה"]
-  };
-  return Object.fromEntries(Object.entries(aliases).map(([key, values]) => [key, findColumn(headers, values)])) as HeaderMap;
-}
-function excelDate(value: unknown) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
-  if (typeof value === "number") { const d = XLSX.SSF.parse_date_code(value); if (d?.y && d?.m && d?.d) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`; }
-  const text = String(value ?? "").trim(); const m = text.match(/^(\d{1,4})[./-](\d{1,2})[./-](\d{1,4})$/); if (!m) return null;
-  const [, a, b, c] = m; let y: number, mo: number, day: number;
-  if (a.length === 4) [y, mo, day] = [+a, +b, +c]; else if (c.length === 4) [day, mo, y] = [+a, +b, +c]; else return null;
-  const d = new Date(Date.UTC(y, mo - 1, day)); return d.getUTCFullYear() === y && d.getUTCMonth() === mo - 1 && d.getUTCDate() === day ? `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}` : null;
-}
-function numericAmount(value: unknown) { if (typeof value === "number" && Number.isFinite(value)) return value; const text = String(value ?? "").replace(/[,₪$€£\s]/g, "").replace(/\(([^)]+)\)/, "-$1").replace(/[^\d.+-]/g, ""); const n = Number(text); return Number.isFinite(n) ? n : null; }
-function inferType(value: unknown, amount: number) { const text = String(value ?? "").trim().toLocaleLowerCase("he"); if (/(income|credit|deposit|הכנסה|זיכוי|הפקדה)/i.test(text)) return "INCOME" as const; if (/(expense|debit|charge|payment|הוצאה|חיוב|תשלום)/i.test(text)) return "EXPENSE" as const; return amount < 0 ? "INCOME" as const : "EXPENSE" as const; }
 function redactRows(rows: unknown[][]) {
-  const headers = rows[0] ?? []; const sensitive = /(card|credit card|cvv|cvc|security code|password|passwd|token|secret|api key|access key|account number|bank account|מספר כרטיס|כרטיס אשראי|קוד אבטחה|סיסמה|סיסמא|טוקן|מפתח|חשבון בנק)/i;
-  const blocked = new Set(headers.map((h, i) => sensitive.test(normalizeHeader(h)) ? i : -1).filter(i => i >= 0));
-  return rows.map((row, r) => r === 0 ? row : row.map((v, i) => blocked.has(i) ? "[REDACTED]" : v));
-}
-function localNormalize(rawRows: unknown[][], map = detectHeaders(rawRows[0] ?? []), source: ImportSource = "BANK"): GeminiRow[] | null {
-  if (rawRows.length < 2) return [];
-  // Credit-card statements commonly omit a transaction-type column: positive amounts are charges,
-  // while refunds are identified later from the merchant/description text.
-  const hasDebitCredit = source === "BANK" && (map.debit !== undefined || map.credit !== undefined);
-  if (map.date === undefined || (map.amount === undefined && !hasDebitCredit) || (source === "BANK" && map.type === undefined && !hasDebitCredit)) return null;
-  const rows: GeminiRow[] = [];
-  for (const raw of rawRows.slice(1, MAX_ROWS + 1)) {
-    const date = excelDate(raw[map.date]); if (!date) continue;
-    let amount: number | null = null; let type: "INCOME" | "EXPENSE";
-    if (hasDebitCredit) {
-      const debit = map.debit === undefined ? null : numericAmount(raw[map.debit]); const credit = map.credit === undefined ? null : numericAmount(raw[map.credit]);
-      if (debit !== null && debit !== 0) { amount = Math.abs(debit); type = "EXPENSE"; } else if (credit !== null && credit !== 0) { amount = Math.abs(credit); type = "INCOME"; } else continue;
-    } else { amount = numericAmount(raw[map.amount!]); if (amount === null || amount === 0) continue; type = inferType(map.type === undefined ? "" : raw[map.type], amount); }
-    const category = map.category === undefined ? "" : String(raw[map.category] ?? "").trim();
-    const description = map.description === undefined ? "" : String(raw[map.description] ?? "").trim();
-    const note = map.note === undefined ? description : String(raw[map.note] ?? "").trim();
-    const payment = map.paymentMethod === undefined ? "" : String(raw[map.paymentMethod] ?? "").trim();
-    rows.push({ date, amount: Math.abs(amount), type, categoryName: category || "אחר", paymentMethodName: payment || null, note: note || null });
-  }
-  return rows;
+  const headers = rows[0] ?? [];
+  const sensitive = /(card|credit card|cvv|cvc|security code|password|passwd|token|secret|api key|access key|account number|bank account|מספר כרטיס|כרטיס אשראי|קוד אבטחה|סיסמה|סיסמא|טוקן|מפתח|חשבון בנק)/i;
+  const blocked = new Set(headers.map((h, i) => sensitive.test(String(h ?? "").trim()) ? i : -1).filter(i => i >= 0));
+  return rows.map((row, r) => r === 0 ? row : row.map((value, i) => blocked.has(i) ? "[REDACTED]" : value));
 }
 async function geminiMapHeaders(rawRows: unknown[][]): Promise<HeaderMap> {
   const key = process.env.GEMINI_API_KEY?.trim(); if (!key) throw new Error("GEMINI_NOT_CONFIGURED");
