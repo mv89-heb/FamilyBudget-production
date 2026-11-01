@@ -16,7 +16,7 @@ function findColumn(headers: unknown[], aliases: string[]) {
 }
 export function detectHeaders(headers: unknown[]): HeaderMap {
   const aliases = {
-    date: ["date", "transaction date", "purchase date", "תאריך עסקה", "תאריך רכישה", "תאריך חיוב", "תאריך", "יום"],
+    date: ["date", "transaction date", "purchase date", "תאריך עסקה", "תאריך רכישה", "תאריך", "יום"],
     amount: ["transaction amount", "purchase amount", "amount ils", "amount", "סכום העסקה", "סכום עסקה", "סכום החיוב", "סכום חיוב", "סכום לתשלום", "סכום בשח", "סכום בש ח", "סכום", "total"],
     type: ["transaction type", "type", "סוג עסקה", "סוג תנועה", "סוג", "פעולה"],
     category: ["category", "קטגוריה", "סיווג"],
