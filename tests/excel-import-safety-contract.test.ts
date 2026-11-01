@@ -19,3 +19,15 @@ test("Import UI requires an explicit source", () => {
   const source = readFileSync(join(process.cwd(), "app/import/page.tsx"), "utf8");
   for (const contract of ["BANK", "CREDIT_CARD", "fd.append(\"source\", source)", "דוח בנק", "פירוט כרטיס אשראי"]) assert.ok(source.includes(contract), `missing UI source contract: ${contract}`);
 });
+
+test("Failed imports can be safely reclaimed and Gemini upstream failures are distinguished", () => {
+  const source = readFileSync(join(process.cwd(), "app/api/import/excel/route.ts"), "utf8");
+  for (const contract of [
+    'prior?.status === "FAILED"',
+    'where: { id: prior.id, status: "FAILED" }',
+    'reclaimed.count !== 1',
+    'createError.code === "P2002"',
+    "GEMINI_UPSTREAM_UNAVAILABLE",
+    "GEMINI_TIMEOUT_MS = 12_000",
+  ]) assert.ok(source.includes(contract), `missing retry/resilience contract: ${contract}`);
+});
