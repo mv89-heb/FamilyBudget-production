@@ -38,7 +38,7 @@ export function calculateMortgageMonthlyFlows(
       if (row.kind !== "LOAN_RECEIVED" && row.kind !== "REFUND") bucket.income += amount;
       continue;
     }
-    if (presentation.isCreditCardPayment || row.kind === "TRANSFER" || row.kind === "CASH_WITHDRAWAL") continue;
+    if (presentation.isCreditCardPayment || row.kind === "TRANSFER" || row.kind === "CASH_WITHDRAWAL" || row.kind === "REFUND") continue;
     if (row.kind === "LOAN_PRINCIPAL" || row.kind === "LOAN_INTEREST" || presentation.isDebt) {
       bucket.debtPayments += amount;
       continue;
