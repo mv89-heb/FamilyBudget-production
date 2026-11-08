@@ -207,3 +207,17 @@ button { cursor: pointer; }
   .brand-name { font-size: 16px; }
   .brand-subtitle { display: none; }
 }
+
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff !important; color: #111827 !important; }
+  .app-sidebar, .sidebar-inner, .report-actions, .app-content > .classification-attention-banner { display: none !important; }
+  .app-shell, .app-main, .app-content { display: block !important; width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  .mortgage-report { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  .mortgage-report .decision-card, .mortgage-report article, .mortgage-report section { break-inside: avoid; box-shadow: none !important; }
+  .mortgage-report table { font-size: 9pt !important; }
+  .mortgage-report h1 { font-size: 23pt !important; }
+  .mortgage-report .eyebrow { border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+  .mortgage-report button { display: none !important; }
+}
