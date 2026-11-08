@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Download, RefreshCw, Printer, Landmark, Wallet, TrendingUp, FileText } from "lucide-react";
+import { AlertTriangle, RefreshCw, Printer, Landmark, Wallet, TrendingUp, FileText } from "lucide-react";
 
 type Obligation = {
   id: string; name: string; type: string; outstandingAmount: number | null;
